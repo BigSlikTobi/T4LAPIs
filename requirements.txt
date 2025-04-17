@@ -1,5 +1,5 @@
 requests==2.31.0
-supabase-py==2.5.0
+supabase-py
 python-dotenv==1.0.1
 nfl-data-py==0.4.1
 pandas==2.2.1
