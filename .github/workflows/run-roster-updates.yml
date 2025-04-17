@@ -18,13 +18,24 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          # *** CHANGE THIS LINE ***
+          python-version: '3.11' # Specify a stable version like 3.11 or 3.10
+
+      # Optional but Recommended: Cache dependencies
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run roster updates
         run: |
+          # Make sure the path to your script is correct relative to the repo root
           python roster_updates/main.py

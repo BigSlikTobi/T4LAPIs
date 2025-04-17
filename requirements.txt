@@ -1,6 +1,7 @@
-requests
-supabase
-python-dotenv
-nfl_data_py
-pandas
-certifi
+requests==2.31.0
+supabase-py==2.5.0
+python-dotenv==1.0.1
+nfl-data-py==0.4.1
+pandas==2.2.1
+certifi==2024.2.2
+urllib3==2.2.1
