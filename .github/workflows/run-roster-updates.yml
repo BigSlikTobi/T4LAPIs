@@ -1,0 +1,29 @@
+name: Daily Roster Updates
+
+on:
+  schedule:
+    - cron: '0 1 * * *'  # Runs every day at 1:00 AM UTC
+
+jobs:
+  update-roster:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run roster updates
+        run: |
+          python roster_updates/main.py
