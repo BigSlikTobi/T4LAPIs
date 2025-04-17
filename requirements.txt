@@ -1,0 +1,6 @@
+requests
+supabase
+python-dotenv
+nfl_data_py
+pandas
+certifi
