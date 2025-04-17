@@ -1,6 +1,7 @@
 name: Injury Updates Schedule
 
 on:
+  workflow_dispatch:
   schedule:
     # Runs at 11:45 PM every Wednesday (UTC)
     - cron: '45 23 * * 3'
