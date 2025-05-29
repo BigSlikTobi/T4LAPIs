@@ -73,7 +73,7 @@ def get_current_max_version(supabase_url, table_name, headers, session):
 # --- Main script ---
 def main():
     # Configuration for the season and Supabase
-    season_year = 2024
+    season_year = 2025
     # Assuming week might be relevant later, but not directly used for version calculation here
     # week = 1
 
