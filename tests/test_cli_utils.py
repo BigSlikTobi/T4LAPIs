@@ -157,7 +157,6 @@ class TestCLIUtilities(unittest.TestCase):
         self.assertEqual(result, 1)
         output = mock_stdout.getvalue()
         self.assertIn("Operation cancelled by user", output)
-        output = mock_stdout.getvalue()
         self.assertIn("Operation cancelled by user", output)
 
 
