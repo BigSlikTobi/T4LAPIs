@@ -109,8 +109,8 @@ class BaseDataLoader(ABC):
             # Step 4: Clear table if requested
             if clear_table:
                 self.logger.info("Clearing existing data...")
-                clear_result = self.db_manager.clear_table(self.table_name)
-                if not clear_result.get('success', False):
+                clear_result = self.db_manager.clear_table()
+                if not clear_result:
                     return {"success": False, "message": "Failed to clear existing data"}
             
             # Step 5: Load data into database
@@ -199,4 +199,4 @@ class BaseDataLoader(ABC):
         Returns:
             True if successful, False otherwise
         """
-        return self.db_manager.clear_table(self.table_name)
+        return self.db_manager.clear_table()
