@@ -65,7 +65,7 @@ class TestCLIUtilities(unittest.TestCase):
         mock_setup_logging.assert_called_once_with(level='WARNING')
 
     @patch('src.core.utils.cli.setup_logging')
-    def test_setup_cli_logging_default(self, mock_setup_logging):
+    def test_setup_cli_logging_with_defaults(self, mock_setup_logging):
         """Test CLI logging setup with defaults."""
         args = Mock()
         args.verbose = False
