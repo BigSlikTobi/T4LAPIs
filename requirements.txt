@@ -5,3 +5,4 @@ nfl-data-py
 pandas==2.2.1
 certifi==2024.2.2
 urllib3==2.2.1
+pytest
