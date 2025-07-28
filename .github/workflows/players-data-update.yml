@@ -1,0 +1,74 @@
+name: NFL Players Data Update
+
+on:
+  schedule:
+    # Run once a week on Wednesday at 3:00 AM UTC (after roster changes are finalized)
+    - cron: '0 3 * * 3'
+  
+  # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      season:
+        description: 'NFL Season (e.g., 2024)'
+        required: true
+        type: string
+
+jobs:
+  update-players-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Set up environment variables
+      run: |
+        echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
+        echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> $GITHUB_ENV
+        
+    - name: Get current NFL season
+      id: season
+      run: |
+        if [ -n "${{ github.event.inputs.season }}" ]; then
+          echo "season=${{ github.event.inputs.season }}" >> $GITHUB_OUTPUT
+        else
+          # Calculate current NFL season based on date
+          current_year=$(date +%Y)
+          current_month=$(date +%m)
+          if [ $current_month -ge 9 ]; then
+            nfl_season=$current_year
+          else
+            nfl_season=$((current_year - 1))
+          fi
+          echo "season=$nfl_season" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Run players data update
+      run: |
+        echo "Updating players data for season ${{ steps.season.outputs.season }}"
+        python scripts/players_cli.py ${{ steps.season.outputs.season }}
+        
+    - name: Send notification on failure
+      if: failure()
+      run: |
+        echo "❌ NFL Players data update failed at $(date)"
+        echo "Season: ${{ steps.season.outputs.season }}"
+        echo "Check the workflow logs for details."

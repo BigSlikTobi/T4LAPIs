@@ -1,0 +1,81 @@
+name: NFL Games Data Update
+
+on:
+  schedule:
+    # Run Thursday at 5:00 AM UTC
+    - cron: '0 5 * * 4'
+    # Run Friday at 5:00 AM UTC  
+    - cron: '0 5 * * 5'
+    # Run Saturday at 5:00 AM UTC
+    - cron: '0 5 * * 6'
+    # Run Sunday at 5:00 AM UTC
+    - cron: '0 5 * * 0'
+    # Run Monday at 5:00 AM UTC
+    - cron: '0 5 * * 1'
+    # Run Tuesday at 5:00 AM UTC
+    - cron: '0 5 * * 2'
+  
+  # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      season:
+        description: 'NFL Season (optional, defaults to current season)'
+        required: false
+        type: string
+      week:
+        description: 'Specific week to process (optional, defaults to auto-detection)'
+        required: false
+        type: string
+
+jobs:
+  update-games-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Set up environment variables
+      run: |
+        echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
+        echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> $GITHUB_ENV
+        
+    - name: Run automated games data update
+      if: ${{ !github.event.inputs.season && !github.event.inputs.week }}
+      run: |
+        python scripts/games_auto_update.py
+        
+    - name: Run manual games data update
+      if: ${{ github.event.inputs.season || github.event.inputs.week }}
+      run: |
+        if [ -n "${{ github.event.inputs.season }}" ] && [ -n "${{ github.event.inputs.week }}" ]; then
+          python scripts/games_cli.py ${{ github.event.inputs.season }} --week ${{ github.event.inputs.week }}
+        elif [ -n "${{ github.event.inputs.season }}" ]; then
+          python scripts/games_cli.py ${{ github.event.inputs.season }}
+        else
+          python scripts/games_auto_update.py
+        fi
+        
+    - name: Send notification on failure
+      if: failure()
+      run: |
+        echo "❌ NFL Games data update failed at $(date)"
+        echo "Check the workflow logs for details."

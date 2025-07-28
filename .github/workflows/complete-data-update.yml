@@ -1,0 +1,105 @@
+name: NFL Complete Data Update
+
+on:
+  # Allow manual triggering only (this is for full refreshes)
+  workflow_dispatch:
+    inputs:
+      season:
+        description: 'NFL Season (e.g., 2024)'
+        required: true
+        type: string
+      include_teams:
+        description: 'Update teams data'
+        required: false
+        default: true
+        type: boolean
+      include_players:
+        description: 'Update players data'
+        required: false
+        default: true
+        type: boolean
+      include_games:
+        description: 'Update games data'
+        required: false
+        default: true
+        type: boolean
+      include_stats:
+        description: 'Update player weekly stats'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  complete-update:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Set up environment variables
+      run: |
+        echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
+        echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> $GITHUB_ENV
+        
+    - name: Update teams data
+      if: ${{ github.event.inputs.include_teams == 'true' }}
+      run: |
+        echo "🏈 Step 1/4: Updating teams data..."
+        python scripts/teams_cli.py
+        echo "✅ Teams data update completed"
+        
+    - name: Update players data
+      if: ${{ github.event.inputs.include_players == 'true' }}
+      run: |
+        echo "👥 Step 2/4: Updating players data for season ${{ github.event.inputs.season }}..."
+        python scripts/players_cli.py ${{ github.event.inputs.season }}
+        echo "✅ Players data update completed"
+        
+    - name: Update games data
+      if: ${{ github.event.inputs.include_games == 'true' }}
+      run: |
+        echo "🏟️ Step 3/4: Updating games data for season ${{ github.event.inputs.season }}..."
+        python scripts/games_cli.py ${{ github.event.inputs.season }}
+        echo "✅ Games data update completed"
+        
+    - name: Update player weekly stats
+      if: ${{ github.event.inputs.include_stats == 'true' }}
+      run: |
+        echo "📊 Step 4/4: Updating player weekly stats for season ${{ github.event.inputs.season }}..."
+        python scripts/player_weekly_stats_cli.py ${{ github.event.inputs.season }}
+        echo "✅ Player weekly stats update completed"
+        
+    - name: Final summary
+      run: |
+        echo "🎉 Complete NFL data update finished!"
+        echo "Season: ${{ github.event.inputs.season }}"
+        echo "Teams: ${{ github.event.inputs.include_teams }}"
+        echo "Players: ${{ github.event.inputs.include_players }}"
+        echo "Games: ${{ github.event.inputs.include_games }}"
+        echo "Stats: ${{ github.event.inputs.include_stats }}"
+        
+    - name: Send notification on failure
+      if: failure()
+      run: |
+        echo "❌ Complete NFL data update failed at $(date)"
+        echo "Season: ${{ github.event.inputs.season }}"
+        echo "Check the workflow logs for details."
