@@ -354,7 +354,7 @@ class PlayerDataTransformer(BaseDataTransformer):
         # Mapping of historical/old team abbreviations to current ones
         team_mapping = {
             'SD': 'LAC',  # San Diego Chargers -> Los Angeles Chargers
-            'STL': 'LAR', # St. Louis Rams -> Los Angeles Rams
+            'STL': 'LA', # St. Louis Rams -> Los Angeles Rams
             'OAK': 'LV',  # Oakland Raiders -> Las Vegas Raiders
         }
         
