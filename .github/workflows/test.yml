@@ -1,0 +1,66 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - 'src/**'
+      - 'requirements.txt'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - 'src/**'
+      - 'requirements.txt'
+  
+  # Allow manual triggering
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-${{ matrix.python-version }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.python-version }}-pip-
+          
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov
+        
+    - name: Run auto-update script tests
+      run: |
+        echo "🧪 Running auto-update script tests..."
+        python -m pytest tests/test_games_auto_update.py tests/test_player_weekly_stats_auto_update.py -v --tb=short
+        
+    - name: Run all tests with coverage
+      run: |
+        echo "🧪 Running full test suite..."
+        python -m pytest tests/ -v --cov=src --cov=scripts --cov-report=term-missing --tb=short
+        
+    - name: Test scripts can be imported
+      run: |
+        echo "🔍 Testing script imports..."
+        python -c "import sys; sys.path.append('scripts'); import games_auto_update; print('✅ games_auto_update imports successfully')"
+        python -c "import sys; sys.path.append('scripts'); import player_weekly_stats_auto_update; print('✅ player_weekly_stats_auto_update imports successfully')"

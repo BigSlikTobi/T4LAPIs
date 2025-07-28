@@ -1,0 +1,107 @@
+name: NFL Player Weekly Stats Update
+
+on:
+  schedule:
+    # Run Thursday at 5:30 AM UTC
+    - cron: '30 5 * * 4'
+    # Run Friday at 5:30 AM UTC  
+    - cron: '30 5 * * 5'
+    # Run Saturday at 5:30 AM UTC
+    - cron: '30 5 * * 6'
+    # Run Sunday at 5:30 AM UTC
+    - cron: '30 5 * * 0'
+    # Run Monday at 5:30 AM UTC
+    - cron: '30 5 * * 1'
+    # Run Tuesday at 5:30 AM UTC
+    - cron: '30 5 * * 2'
+  
+  # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      years:
+        description: 'NFL Season years (space-separated, e.g., "2024 2023")'
+        required: true
+        type: string
+      weeks:
+        description: 'Specific weeks (space-separated, optional)'
+        required: false
+        type: string
+
+jobs:
+  update-player-stats:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Set up environment variables
+      run: |
+        echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
+        echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> $GITHUB_ENV
+        
+    - name: Prepare command arguments
+      id: args
+      run: |
+        if [ -n "${{ github.event.inputs.years }}" ]; then
+          years="${{ github.event.inputs.years }}"
+        else
+          # Default to current NFL season
+          current_year=$(date +%Y)
+          current_month=$(date +%m)
+          if [ $current_month -ge 9 ]; then
+            years="$current_year"
+          else
+            years="$((current_year - 1))"
+          fi
+        fi
+        echo "years=$years" >> $GITHUB_OUTPUT
+        
+        if [ -n "${{ github.event.inputs.weeks }}" ]; then
+          echo "weeks_arg=--weeks ${{ github.event.inputs.weeks }}" >> $GITHUB_OUTPUT
+        else
+          echo "weeks_arg=" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Run automated player weekly stats update
+      if: ${{ !github.event.inputs.years && !github.event.inputs.weeks }}
+      run: |
+        python scripts/player_weekly_stats_auto_update.py
+        
+    - name: Run manual player weekly stats update
+      if: ${{ github.event.inputs.years || github.event.inputs.weeks }}
+      run: |
+        echo "Manual update requested"
+        echo "Years: ${{ steps.args.outputs.years }}"
+        if [ -n "${{ steps.args.outputs.weeks_arg }}" ]; then
+          echo "Specific weeks: ${{ github.event.inputs.weeks }}"
+        else
+          echo "All available weeks for specified years"
+        fi
+        python scripts/player_weekly_stats_cli.py ${{ steps.args.outputs.years }} ${{ steps.args.outputs.weeks_arg }}
+        
+    - name: Send notification on failure
+      if: failure()
+      run: |
+        echo "❌ NFL Player weekly stats update failed at $(date)"
+        echo "Years: ${{ steps.args.outputs.years }}"
+        echo "Weeks: ${{ github.event.inputs.weeks }}"
+        echo "Check the workflow logs for details."
