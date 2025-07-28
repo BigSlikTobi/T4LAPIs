@@ -658,13 +658,13 @@ class PlayerWeeklyStatsDataTransformer(BaseDataTransformer):
             
             # Query the games table to find the matching game using Supabase API
             # Check if recent_team is home and opponent_team is away
-            response1 = self.db_manager.table('games').select('game_id').eq('season', season).eq('week', week).eq('home_team_abbr', recent_team).eq('away_team_abbr', opponent_team).execute()
+            response1 = self.db_manager.supabase.table('games').select('game_id').eq('season', season).eq('week', week).eq('home_team_abbr', recent_team).eq('away_team_abbr', opponent_team).execute()
             
             if response1.data and len(response1.data) > 0:
                 return response1.data[0]['game_id']
             
             # Check if recent_team is away and opponent_team is home
-            response2 = self.db_manager.table('games').select('game_id').eq('season', season).eq('week', week).eq('home_team_abbr', opponent_team).eq('away_team_abbr', recent_team).execute()
+            response2 = self.db_manager.supabase.table('games').select('game_id').eq('season', season).eq('week', week).eq('home_team_abbr', opponent_team).eq('away_team_abbr', recent_team).execute()
             
             if response2.data and len(response2.data) > 0:
                 return response2.data[0]['game_id']
