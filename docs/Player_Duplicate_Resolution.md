@@ -40,7 +40,12 @@ Enhanced the base loader to use proper conflict resolution:
 
 **File: `src/core/utils/database.py`**
 
-The database manager already supported the `on_conflict` parameter for upsert operations.
+The database manager already supported the `on_conflict` parameter for upsert operations, but needed a fix for the Supabase Python client API.
+
+**Fixed Supabase API Usage:**
+- The `on_conflict` parameter is passed directly to the `upsert()` method
+- Previous implementation incorrectly tried to chain `.on_conflict()` method
+- Now uses: `supabase.table(table_name).upsert(json=records, on_conflict=column_name)`
 
 ## How It Works
 
@@ -81,6 +86,21 @@ if self.table_name == "players":
 3. **Performance**: Reduces database load by removing duplicates before insertion
 4. **Backwards Compatible**: All existing tests pass, no breaking changes
 5. **Overwrite Strategy**: If a player exists in database, it gets overwritten with latest data
+
+## Fix Applied
+
+### Issue Encountered
+When testing the solution, encountered a Supabase API error:
+```
+'SyncQueryRequestBuilder' object has no attribute 'on_conflict'
+```
+
+### Resolution
+Updated the database manager to use the correct Supabase Python client API:
+- **Before:** `query.on_conflict(column_name)` (method chaining - incorrect)
+- **After:** `upsert(json=records, on_conflict=column_name)` (parameter passing - correct)
+
+This ensures the PostgreSQL `ON CONFLICT (player_id) DO UPDATE` behavior works properly.
 
 ## Testing
 

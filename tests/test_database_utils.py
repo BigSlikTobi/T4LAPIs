@@ -111,7 +111,7 @@ class TestDatabaseManager(unittest.TestCase):
         mock_response = Mock()
         mock_response.data = [{"id": 1}]
         mock_response.error = None
-        mock_client.table.return_value.upsert.return_value.on_conflict.return_value.execute.return_value = mock_response
+        mock_client.table.return_value.upsert.return_value.execute.return_value = mock_response
         mock_get_client.return_value = mock_client
         
         db_manager = DatabaseManager("test_table")
@@ -120,6 +120,8 @@ class TestDatabaseManager(unittest.TestCase):
         
         self.assertTrue(result['success'])
         self.assertEqual(result['affected_rows'], 1)
+        # Verify that upsert was called with the correct parameters
+        mock_client.table.return_value.upsert.assert_called_with(json=test_data, on_conflict="unique_id")
 
     @patch('src.core.utils.database.get_supabase_client')
     def test_insert_records_success(self, mock_get_client):

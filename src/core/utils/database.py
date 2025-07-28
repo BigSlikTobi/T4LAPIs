@@ -124,13 +124,13 @@ class DatabaseManager:
         try:
             self.logger.info(f"Upserting {len(records)} records into {self.table_name}")
             
-            query = self.supabase.table(self.table_name).upsert(records)
-            
-            # Add conflict resolution if specified
+            # Build upsert parameters
+            upsert_params = {'json': records}
             if on_conflict:
-                query = query.on_conflict(on_conflict)
+                upsert_params['on_conflict'] = on_conflict
+                self.logger.info(f"Using conflict resolution on column: {on_conflict}")
             
-            response = query.execute()
+            response = self.supabase.table(self.table_name).upsert(**upsert_params).execute()
             
             if hasattr(response, 'error') and response.error:
                 self.logger.error(f"Error upserting records: {response.error}")
