@@ -1,34 +1,73 @@
 # Scripts Directory
 
-This directory contains simple utility scripts for loading NFL data into the database.
+This directory contains CLI utility scripts for loading NFL data into the database.
 
-## Available Scripts
+## Available CLI Scripts
 
-### `load_teams.py`
+### `teams_cli.py`
 Loads NFL teams data into the database.
 
 ```bash
-python scripts/load_teams.py
+python scripts/teams_cli.py [--dry-run] [--clear] [--verbose]
 ```
 
 **Features:**
 - Automatically checks for existing team data
-- Won't overwrite if teams already exist
+- Won't overwrite if teams already exist (unless --clear is used)
+- Supports dry-run mode to preview actions
 - Uses the `TeamsDataLoader` class internally
 - Provides clear logging and status messages
 
-### `load_players.py`
-Loads NFL player data for the current season (2024) into the database.
+### `players_cli.py`
+Loads NFL player data for a specific season into the database.
 
 ```bash
-python scripts/load_players.py
+python scripts/players_cli.py 2024 [--dry-run] [--clear] [--verbose]
 ```
 
 **Features:**
-- Loads player data for season 2024
+- Loads player data for specified season
 - Uses upsert functionality to handle player updates
+- Supports dry-run mode for testing
 - Provides detailed progress information
 - Shows final player count in database
+
+### `games_cli.py`
+Loads NFL game data into the database with advanced filtering options.
+
+```bash
+python scripts/games_cli.py 2024 [--week 1] [--dry-run] [--clear] [--verbose]
+```
+
+**Features:**
+- Load games for entire season or specific week
+- Supports dry-run mode for testing
+- Clear existing data option
+- Detailed progress and result reporting
+- Shows sample data in dry-run mode
+
+### `player_weekly_stats_cli.py`
+Loads NFL player weekly stats data into the database.
+
+```bash
+python scripts/player_weekly_stats_cli.py 2024 [--weeks 1 2 3] [--batch-size 100] [--dry-run] [--clear]
+```
+
+**Features:**
+- Load stats for multiple years and specific weeks
+- Configurable batch size for large datasets
+- Supports dry-run mode for testing
+- Uses upsert functionality for stat updates
+- Detailed progress tracking
+
+## Common Options
+
+All CLI scripts support these common options:
+
+- `--dry-run`: Show what would be done without actually doing it
+- `--clear`: Clear existing data before loading new data
+- `--verbose, -v`: Enable verbose logging
+- `--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}`: Set specific logging level
 
 ## Usage Notes
 
@@ -36,15 +75,24 @@ python scripts/load_players.py
 - Ensure your `.env` file is configured with Supabase credentials
 - Run from the project root directory
 
-### For Advanced Usage
-For more control over the loading process (dry runs, clearing data, specific seasons), use the CLI interfaces directly:
+### Example Workflows
 
 ```bash
-# Teams with advanced options
-python -m src.core.data.loaders.teams --clear --dry-run
+# Load teams (one-time setup)
+python scripts/teams_cli.py --dry-run  # Preview first
+python scripts/teams_cli.py           # Actually load
 
-# Players with advanced options  
-python -m src.core.data.loaders.players 2023 --clear --dry-run --verbose
+# Load players for current season
+python scripts/players_cli.py 2024 --dry-run
+python scripts/players_cli.py 2024
+
+# Load games for specific week
+python scripts/games_cli.py 2024 --week 1 --dry-run
+python scripts/games_cli.py 2024 --week 1
+
+# Load player stats for multiple weeks
+python scripts/player_weekly_stats_cli.py 2024 --weeks 1 2 3 --dry-run
+python scripts/player_weekly_stats_cli.py 2024 --weeks 1 2 3
 ```
 
 ### Data Flow

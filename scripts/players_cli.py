@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-CLI script for advanced NFL games data loading.
-Supports loading by season, week, and other options.
+CLI script for loading NFL players data.
+Supports loading by season with various options.
 """
 
 import sys
@@ -12,44 +12,39 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from src.core.data.loaders.games import GamesDataLoader
+from src.core.data.loaders.players import PlayersDataLoader
 from src.core.utils.cli import setup_cli_parser, setup_cli_logging, print_results, handle_cli_errors
 
 
 @handle_cli_errors
 def main():
-    """CLI interface for the games data loader with advanced options."""
-    parser = setup_cli_parser("Load NFL game data into the database")
+    """CLI interface for the players data loader."""
+    parser = setup_cli_parser("Load NFL players data into the database")
     parser.add_argument("season", type=int, help="NFL season year (e.g., 2024)")
-    parser.add_argument("--week", type=int, help="Specific week number (optional)")
     
     args = parser.parse_args()
     setup_cli_logging(args)
     
     try:
-        print("🏈 NFL Games Data Loader")
-        if args.week:
-            print(f"Loading games for season {args.season}, week {args.week}")
-        else:
-            print(f"Loading games for entire season {args.season}")
+        print("🏈 NFL Players Data Loader")
+        print(f"Loading player data for season {args.season}")
         
         # Create loader and run
-        loader = GamesDataLoader()
+        loader = PlayersDataLoader()
         result = loader.load_data(
             season=args.season,
-            week=args.week,
             dry_run=args.dry_run,
             clear_table=args.clear
         )
         
         # Print results using utility function
-        operation = f"games data load for season {args.season}" + (f", week {args.week}" if args.week else "")
+        operation = f"players data load for season {args.season}"
         print_results(result, operation, args.dry_run)
         
         if result["success"] and not args.dry_run:
-            # Show current game count
-            total_games = loader.get_game_count()
-            print(f"Total games in database: {total_games}")
+            # Show current player count
+            total_players = loader.get_player_count()
+            print(f"Total players in database: {total_players}")
         
         return result["success"]
         
