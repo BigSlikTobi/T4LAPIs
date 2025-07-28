@@ -47,8 +47,11 @@ class BaseDataTransformer(ABC):
         # Step 3: Validate and sanitize records
         validated_records = self._validate_and_sanitize_records(transformed_records)
         
-        self.logger.info(f"Transformation pipeline completed: {len(validated_records)} valid records")
-        return validated_records
+        # Step 4: Deduplicate records if needed
+        deduplicated_records = self._deduplicate_records(validated_records)
+        
+        self.logger.info(f"Transformation pipeline completed: {len(deduplicated_records)} valid records")
+        return deduplicated_records
     
     @abstractmethod
     def _get_required_columns(self) -> List[str]:
@@ -119,6 +122,13 @@ class BaseDataTransformer(ABC):
             if pd.isna(sanitized[field]) or sanitized[field] == 'nan':
                 sanitized[field] = None
         return sanitized
+    
+    def _deduplicate_records(self, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Remove duplicate records. Default implementation returns all records.
+        Override in subclasses that need deduplication logic.
+        """
+        return records
 
 class TeamDataTransformer(BaseDataTransformer):
     """
@@ -371,6 +381,48 @@ class PlayerDataTransformer(BaseDataTransformer):
         except Exception as e:
             self.logger.error(f"Error validating player record: {e}")
             return False
+    
+    def _deduplicate_records(self, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Deduplicate player records by player_id, keeping the latest record for each player.
+        This resolves the PostgreSQL 'ON CONFLICT DO UPDATE command cannot affect row a second time' error
+        by ensuring only one record per player_id is sent to the database.
+        """
+        if not records:
+            return records
+        
+        self.logger.info(f"Deduplicating {len(records)} player records")
+        
+        # Dictionary to store the latest record for each player_id
+        deduplicated = {}
+        
+        for record in records:
+            player_id = record.get('player_id')
+            if not player_id:
+                continue
+                
+            # If we haven't seen this player_id before, or if this record has a more recent season
+            if player_id not in deduplicated:
+                deduplicated[player_id] = record
+            else:
+                existing_record = deduplicated[player_id]
+                
+                # Compare based on last_active_season (prefer more recent)
+                existing_season = existing_record.get('last_active_season') or 0
+                current_season = record.get('last_active_season') or 0
+                
+                if current_season >= existing_season:
+                    # Keep the record with the more recent season
+                    deduplicated[player_id] = record
+                    self.logger.debug(f"Updated record for player {player_id}: season {current_season} >= {existing_season}")
+        
+        deduplicated_records = list(deduplicated.values())
+        
+        duplicates_removed = len(records) - len(deduplicated_records)
+        if duplicates_removed > 0:
+            self.logger.info(f"Removed {duplicates_removed} duplicate player records, kept {len(deduplicated_records)} unique players")
+        
+        return deduplicated_records
 
 class GameDataTransformer(BaseDataTransformer):
     """
