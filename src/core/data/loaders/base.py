@@ -175,6 +175,9 @@ class BaseDataLoader(ABC):
         # Use upsert for most data types, insert for teams (which don't change)
         if self.table_name == "teams":
             upsert_result = self.db_manager.insert_records(transformed_records)
+        elif self.table_name == "players":
+            # For players, use player_id as conflict resolution to implement overwrite strategy
+            upsert_result = self.db_manager.upsert_records(transformed_records, on_conflict="player_id")
         else:
             upsert_result = self.db_manager.upsert_records(transformed_records)
         

@@ -47,8 +47,11 @@ class BaseDataTransformer(ABC):
         # Step 3: Validate and sanitize records
         validated_records = self._validate_and_sanitize_records(transformed_records)
         
-        self.logger.info(f"Transformation pipeline completed: {len(validated_records)} valid records")
-        return validated_records
+        # Step 4: Deduplicate records if needed
+        deduplicated_records = self._deduplicate_records(validated_records)
+        
+        self.logger.info(f"Transformation pipeline completed: {len(deduplicated_records)} valid records")
+        return deduplicated_records
     
     @abstractmethod
     def _get_required_columns(self) -> List[str]:
@@ -119,6 +122,13 @@ class BaseDataTransformer(ABC):
             if pd.isna(sanitized[field]) or sanitized[field] == 'nan':
                 sanitized[field] = None
         return sanitized
+    
+    def _deduplicate_records(self, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Remove duplicate records. Default implementation returns all records.
+        Override in subclasses that need deduplication logic.
+        """
+        return records
 
 class TeamDataTransformer(BaseDataTransformer):
     """
@@ -261,7 +271,7 @@ class PlayerDataTransformer(BaseDataTransformer):
                 draft_round = 7
                 
         if pd.notna(row.get('draft_club')):
-            draft_team = str(row['draft_club'])
+            draft_team = self._normalize_team_abbreviation(row['draft_club'])
         
         # Determine position group
         position_group = self._determine_position_group(row.get('position'))
@@ -288,7 +298,7 @@ class PlayerDataTransformer(BaseDataTransformer):
             "college_conference": None,  # Not available in nfl_data_py
             "jersey_number": str(int(row['jersey_number'])) if pd.notna(row['jersey_number']) else None,
             "status": str(row['status']) if pd.notna(row['status']) else "Unknown",
-            "latest_team": str(row['team']) if pd.notna(row['team']) else None,
+            "latest_team": self._normalize_team_abbreviation(row.get('team')),
             "years_of_experience": int(row['years_exp']) if pd.notna(row['years_exp']) else None,
             "draft_year": draft_year,
             "draft_round": draft_round,
@@ -329,6 +339,34 @@ class PlayerDataTransformer(BaseDataTransformer):
             return "Special Teams"
         else:
             return "Unknown"
+    
+    def _normalize_team_abbreviation(self, team_abbr: Any) -> Optional[str]:
+        """
+        Normalize team abbreviations to current valid abbreviations.
+        Maps old/historical team abbreviations to current ones.
+        Returns None for unknown teams to avoid foreign key constraint violations.
+        """
+        if pd.isna(team_abbr) or not team_abbr:
+            return None
+            
+        team_str = str(team_abbr).upper().strip()
+        
+        # Mapping of historical/old team abbreviations to current ones
+        team_mapping = {
+            'SD': 'LAC',  # San Diego Chargers -> Los Angeles Chargers
+            'STL': 'LA', # St. Louis Rams -> Los Angeles Rams
+            'OAK': 'LV',  # Oakland Raiders -> Las Vegas Raiders
+        }
+        
+        # Return mapped team or original if it's likely valid (2-3 chars)
+        if team_str in team_mapping:
+            self.logger.debug(f"Mapped historical team {team_str} to {team_mapping[team_str]}")
+            return team_mapping[team_str]
+        elif 2 <= len(team_str) <= 3:
+            return team_str
+        else:
+            self.logger.warning(f"Invalid team abbreviation format: {team_str}")
+            return None
     
     def _validate_record(self, player_record: Dict[str, Any]) -> bool:
         """Validate a single player record for completeness and correctness."""
@@ -371,6 +409,48 @@ class PlayerDataTransformer(BaseDataTransformer):
         except Exception as e:
             self.logger.error(f"Error validating player record: {e}")
             return False
+    
+    def _deduplicate_records(self, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Deduplicate player records by player_id, keeping the latest record for each player.
+        This resolves the PostgreSQL 'ON CONFLICT DO UPDATE command cannot affect row a second time' error
+        by ensuring only one record per player_id is sent to the database.
+        """
+        if not records:
+            return records
+        
+        self.logger.info(f"Deduplicating {len(records)} player records")
+        
+        # Dictionary to store the latest record for each player_id
+        deduplicated = {}
+        
+        for record in records:
+            player_id = record.get('player_id')
+            if not player_id:
+                continue
+                
+            # If we haven't seen this player_id before, or if this record has a more recent season
+            if player_id not in deduplicated:
+                deduplicated[player_id] = record
+            else:
+                existing_record = deduplicated[player_id]
+                
+                # Compare based on last_active_season (prefer more recent)
+                existing_season = existing_record.get('last_active_season') or 0
+                current_season = record.get('last_active_season') or 0
+                
+                if current_season >= existing_season:
+                    # Keep the record with the more recent season
+                    deduplicated[player_id] = record
+                    self.logger.debug(f"Updated record for player {player_id}: season {current_season} >= {existing_season}")
+        
+        deduplicated_records = list(deduplicated.values())
+        
+        duplicates_removed = len(records) - len(deduplicated_records)
+        if duplicates_removed > 0:
+            self.logger.info(f"Removed {duplicates_removed} duplicate player records, kept {len(deduplicated_records)} unique players")
+        
+        return deduplicated_records
 
 class GameDataTransformer(BaseDataTransformer):
     """
