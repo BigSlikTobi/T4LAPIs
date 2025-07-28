@@ -81,12 +81,19 @@ except Exception as e:
     print(f"Error: {e}")
 ```
 
-### 3. Simple Script
+### 3. CLI Script
 
-Use the included simple script:
+Use the comprehensive CLI script:
 
 ```bash
-python3 scripts/load_teams.py
+# Load teams data
+python3 scripts/teams_cli.py
+
+# Dry run to test without loading
+python3 scripts/teams_cli.py --dry-run
+
+# Clear existing data and reload
+python3 scripts/teams_cli.py --clear
 ```
 
 ## Data Flow
@@ -116,7 +123,7 @@ tests/
 ├── test_team_transform.py  # Transform function tests
 └── test_teams_loader.py    # Loader class tests
 scripts/
-└── load_teams.py          # Simple load script
+└── teams_cli.py           # CLI script for loading teams
 ```
 
 ### 🧩 Components

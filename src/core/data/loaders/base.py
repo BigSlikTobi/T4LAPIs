@@ -64,7 +64,16 @@ class BaseDataLoader(ABC):
         """
         self.logger.info(f"Transforming {len(raw_data)} records")
         
-        transformer = self.transformer_class()
+        # Check if transformer requires db_manager (like PlayerWeeklyStatsDataTransformer)
+        import inspect
+        transformer_init = self.transformer_class.__init__
+        init_params = inspect.signature(transformer_init).parameters
+        
+        if 'db_manager' in init_params:
+            transformer = self.transformer_class(self.db_manager)
+        else:
+            transformer = self.transformer_class()
+            
         transformed_records = transformer.transform(raw_data)
         
         self.logger.info(f"Successfully transformed {len(transformed_records)} records")
