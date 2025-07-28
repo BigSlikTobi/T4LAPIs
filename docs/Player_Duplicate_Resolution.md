@@ -28,6 +28,7 @@ Added deduplication logic to the `BaseDataTransformer` class:
 - Keep only the most recent record per `player_id` based on `last_active_season`
 - Removes duplicate players before sending to database
 - Logs the number of duplicates removed
+- Added `_normalize_team_abbreviation()` method to handle historical team names
 
 ### 2. Database-Level Conflict Resolution
 
@@ -72,7 +73,29 @@ def _deduplicate_records(self, records: List[Dict[str, Any]]) -> List[Dict[str, 
     return list(deduplicated.values())
 ```
 
-### Step 2: Database Conflict Resolution
+### Step 2: Team Abbreviation Normalization
+```python
+def _normalize_team_abbreviation(self, team_abbr: Any) -> Optional[str]:
+    """
+    Normalize team abbreviations to current valid abbreviations.
+    Maps old/historical team abbreviations to current ones.
+    """
+    team_mapping = {
+        'SD': 'LAC',  # San Diego Chargers -> Los Angeles Chargers
+        'STL': 'LAR', # St. Louis Rams -> Los Angeles Rams
+        'OAK': 'LV',  # Oakland Raiders -> Las Vegas Raiders
+    }
+    
+    # Return mapped team or original if valid, None for invalid
+    if team_str in team_mapping:
+        return team_mapping[team_str]
+    elif 2 <= len(team_str) <= 3:
+        return team_str
+    else:
+        return None  # Prevents foreign key constraint violations
+```
+
+### Step 3: Database Conflict Resolution
 ```python
 if self.table_name == "players":
     # For players, use player_id as conflict resolution to implement overwrite strategy
@@ -101,6 +124,22 @@ Updated the database manager to use the correct Supabase Python client API:
 - **After:** `upsert(json=records, on_conflict=column_name)` (parameter passing - correct)
 
 This ensures the PostgreSQL `ON CONFLICT (player_id) DO UPDATE` behavior works properly.
+
+### Issue 2: Foreign Key Constraint Violation
+When testing with historical data, encountered:
+```
+insert or update on table "players" violates foreign key constraint "players_draft_team_fkey"
+Key (draft_team)=(SD) is not present in table "teams"
+```
+
+### Resolution
+Added team abbreviation normalization to handle historical team names:
+- **SD** (San Diego Chargers) → **LAC** (Los Angeles Chargers)
+- **STL** (St. Louis Rams) → **LAR** (Los Angeles Rams)  
+- **OAK** (Oakland Raiders) → **LV** (Las Vegas Raiders)
+- Invalid team abbreviations → **None** (to avoid constraint violations)
+
+This prevents foreign key violations while preserving data integrity.
 
 ## Testing
 

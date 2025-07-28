@@ -271,7 +271,7 @@ class PlayerDataTransformer(BaseDataTransformer):
                 draft_round = 7
                 
         if pd.notna(row.get('draft_club')):
-            draft_team = str(row['draft_club'])
+            draft_team = self._normalize_team_abbreviation(row['draft_club'])
         
         # Determine position group
         position_group = self._determine_position_group(row.get('position'))
@@ -298,7 +298,7 @@ class PlayerDataTransformer(BaseDataTransformer):
             "college_conference": None,  # Not available in nfl_data_py
             "jersey_number": str(int(row['jersey_number'])) if pd.notna(row['jersey_number']) else None,
             "status": str(row['status']) if pd.notna(row['status']) else "Unknown",
-            "latest_team": str(row['team']) if pd.notna(row['team']) else None,
+            "latest_team": self._normalize_team_abbreviation(row.get('team')),
             "years_of_experience": int(row['years_exp']) if pd.notna(row['years_exp']) else None,
             "draft_year": draft_year,
             "draft_round": draft_round,
@@ -339,6 +339,34 @@ class PlayerDataTransformer(BaseDataTransformer):
             return "Special Teams"
         else:
             return "Unknown"
+    
+    def _normalize_team_abbreviation(self, team_abbr: Any) -> Optional[str]:
+        """
+        Normalize team abbreviations to current valid abbreviations.
+        Maps old/historical team abbreviations to current ones.
+        Returns None for unknown teams to avoid foreign key constraint violations.
+        """
+        if pd.isna(team_abbr) or not team_abbr:
+            return None
+            
+        team_str = str(team_abbr).upper().strip()
+        
+        # Mapping of historical/old team abbreviations to current ones
+        team_mapping = {
+            'SD': 'LAC',  # San Diego Chargers -> Los Angeles Chargers
+            'STL': 'LAR', # St. Louis Rams -> Los Angeles Rams
+            'OAK': 'LV',  # Oakland Raiders -> Las Vegas Raiders
+        }
+        
+        # Return mapped team or original if it's likely valid (2-3 chars)
+        if team_str in team_mapping:
+            self.logger.debug(f"Mapped historical team {team_str} to {team_mapping[team_str]}")
+            return team_mapping[team_str]
+        elif 2 <= len(team_str) <= 3:
+            return team_str
+        else:
+            self.logger.warning(f"Invalid team abbreviation format: {team_str}")
+            return None
     
     def _validate_record(self, player_record: Dict[str, Any]) -> bool:
         """Validate a single player record for completeness and correctness."""
