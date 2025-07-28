@@ -187,7 +187,7 @@ class TestTeamsDataLoader(unittest.TestCase):
                 result = loader.load_data(clear_table=True)
                 
                 self.assertTrue(result['success'])
-                mock_db_manager.clear_table.assert_called_once_with("teams")
+                mock_db_manager.clear_table.assert_called_once_with()
 
 
 if __name__ == '__main__':
