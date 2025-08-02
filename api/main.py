@@ -224,7 +224,7 @@ async def health_check() -> Dict[str, Any]:
         return {
             "status": "healthy",
             "database": "connected",
-            "timestamp": "2025-08-02T00:00:00Z"  # This would be dynamic in a real app
+            "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
         }
         
     except Exception as e:
