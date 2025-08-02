@@ -10,8 +10,10 @@ The T4LAPIs system follows a **modular, pipeline-based architecture** with clear
 
 ```
 Data Flow: NFL API → Fetch → Transform → Validate → Load → Supabase
-                    ↓
+                    ↓                                    ↓
                 CLI Tools ← Auto Scripts ← GitHub Actions
+                    ↓
+            LLM Entity Linking → Article Processing → Entity Links
 ```
 
 ### Core Design Principles
@@ -19,8 +21,9 @@ Data Flow: NFL API → Fetch → Transform → Validate → Load → Supabase
 1. **Separation of Concerns**: Distinct modules for fetching, transforming, and loading
 2. **Error Resilience**: Comprehensive error handling at every layer
 3. **Data Integrity**: Validation and conflict resolution mechanisms
-4. **Scalability**: Modular design supports easy extension and modification
-5. **Maintainability**: Clear code structure, comprehensive tests, and documentation
+4. **AI Integration**: LLM-enhanced entity extraction with validation
+5. **Scalability**: Modular design supports easy extension and modification
+6. **Maintainability**: Clear code structure, comprehensive tests, and documentation
 
 ## 📦 Module Architecture
 
@@ -168,6 +171,77 @@ def main():
     """Smart update logic with error handling"""
 ```
 
+### 4. LLM Entity Linking (`src/core/llm/` & `scripts/llm_*`)
+
+#### LLM Integration (`llm/llm_init.py`)
+```python
+# Purpose: DeepSeek AI client management and entity extraction
+# Pattern: Stateful client with retry logic and error handling
+# Dependencies: openai, httpx, logging
+
+class DeepSeekLLM:
+    """DeepSeek LLM client for entity extraction"""
+    
+    def __init__(self, api_key: str = None):
+        """Initialize with API key and configuration"""
+        
+    def extract_entities(self, article_text: str) -> Dict[str, List[str]]:
+        """Extract players and teams from article text"""
+        
+    def test_connection(self) -> bool:
+        """Test API connectivity"""
+
+def get_deepseek_client(api_key: str = None) -> DeepSeekLLM:
+    """Factory function for LLM client"""
+```
+
+**Design Decisions:**
+- **Retry Logic**: Automatic retry with exponential backoff
+- **Response Parsing**: Robust JSON extraction from LLM responses
+- **Error Handling**: Graceful degradation on API failures
+- **Prompt Engineering**: Optimized prompts for NFL entity extraction
+
+#### Entity Linking (`scripts/llm_entity_linker.py`)
+```python
+# Purpose: LLM-enhanced entity linking with validation
+# Pattern: Pipeline processing with validation against database
+# Dependencies: LLM client, entity dictionary, database utils
+
+class LLMEntityLinker:
+    """LLM-enhanced entity linker with validation"""
+    
+    def extract_entities_with_llm(self, text: str) -> Tuple[List[str], List[str]]:
+        """Extract entities using LLM"""
+        
+    def validate_and_link_entities(self, players: List[str], teams: List[str]) -> List[EntityMatch]:
+        """Validate extracted entities against NFL database"""
+        
+    def create_entity_links(self, article_id: int, matches: List[EntityMatch]) -> bool:
+        """Create validated entity links in database"""
+```
+
+**Design Decisions:**
+- **Validation Pipeline**: LLM extraction → Entity validation → Database linking
+- **Entity Dictionary**: Pre-built mapping of all NFL players and teams
+- **Batch Processing**: Configurable batch sizes for performance optimization
+- **Statistics Tracking**: Comprehensive metrics on extraction and validation
+
+#### Entity Dictionary Management (`data/entity_linking.py`)
+```python
+# Purpose: Build and manage NFL entity dictionary for validation
+# Pattern: Dictionary building from multiple data sources
+# Dependencies: database utils, string matching
+
+def build_entity_dictionary() -> Dict[str, str]:
+    """Build comprehensive entity name → ID mapping"""
+    
+def build_player_name_mappings() -> Dict[str, str]:
+    """Build player name variations mapping"""
+    
+def build_team_name_mappings() -> Dict[str, str]:
+    """Build team name and abbreviation mapping"""
+```
+
 ## 🔄 Data Flow Architecture
 
 ### 1. Manual Data Loading Flow
@@ -203,6 +277,35 @@ graph TD
     I --> D
     I --> G
 ```
+
+### 3. LLM Entity Linking Flow
+
+```mermaid
+graph TD
+    A[GitHub Actions Scheduler] --> B[LLM Entity Linker]
+    B --> C[Fetch Unlinked Articles]
+    C --> D[DeepSeek LLM API]
+    D --> E[Extract Entities]
+    E --> F[Entity Dictionary Validation]
+    F --> G[Create Entity Links]
+    G --> H[Supabase Database]
+    
+    I[Entity Dictionary] --> F
+    J[Error Handling & Retry] --> D
+    J --> F
+    J --> G
+    K[Statistics & Monitoring] --> B
+    K --> E
+    K --> G
+```
+
+**LLM Processing Pipeline:**
+1. **Article Retrieval**: Fetch unprocessed articles from SourceArticles table
+2. **LLM Extraction**: Send article text to DeepSeek API for entity extraction
+3. **Response Parsing**: Parse JSON response to extract player and team names
+4. **Entity Validation**: Validate extracted entities against pre-built NFL dictionary
+5. **Link Creation**: Create validated entity links in article_entity_links table
+6. **Statistics Tracking**: Record processing metrics and validation rates
 
 ## 🗄️ Database Schema Design
 
@@ -298,12 +401,53 @@ CREATE TABLE player_weekly_stats (
 );
 ```
 
+#### LLM Entity Linking Tables
+
+```sql
+-- Source articles for entity linking
+CREATE TABLE SourceArticles (
+    id SERIAL PRIMARY KEY,                   -- Auto-incrementing ID
+    title TEXT,                              -- Article title
+    Content TEXT,                            -- Article text content
+    url TEXT,                                -- Article URL
+    author TEXT,                             -- Article author
+    published_date TIMESTAMP,               -- Publication date
+    source TEXT,                             -- News source
+    created_at TIMESTAMP DEFAULT NOW()      -- Record creation timestamp
+);
+
+-- Entity links extracted from articles
+CREATE TABLE article_entity_links (
+    link_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),  -- Unique link ID
+    article_id INTEGER NOT NULL,                         -- Reference to source article
+    entity_id TEXT NOT NULL,                             -- Player ID or team abbreviation
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('player', 'team')),  -- Entity type
+    created_at TIMESTAMP DEFAULT NOW(),                  -- Link creation timestamp
+    
+    -- Foreign keys
+    CONSTRAINT fk_article_link 
+        FOREIGN KEY (article_id) REFERENCES SourceArticles(id) ON DELETE CASCADE,
+    
+    -- Prevent duplicate links for same article-entity combination
+    CONSTRAINT unique_article_entity 
+        UNIQUE (article_id, entity_id, entity_type)
+);
+
+-- Indexes for performance
+CREATE INDEX idx_article_entity_links_article_id ON article_entity_links(article_id);
+CREATE INDEX idx_article_entity_links_entity_id ON article_entity_links(entity_id);
+CREATE INDEX idx_article_entity_links_entity_type ON article_entity_links(entity_type);
+CREATE INDEX idx_source_articles_published_date ON SourceArticles(published_date);
+```
+
 ### Design Decisions
 
 1. **Composite Keys**: Use meaningful composite keys for statistics
 2. **Denormalization**: Store player names in stats for query performance
 3. **Foreign Keys**: Maintain referential integrity where appropriate
 4. **Nullable Fields**: Allow nulls for optional data (scores before games)
+5. **Entity Linking**: Flexible schema supporting both players and teams
+6. **UUID Links**: Use UUIDs for entity links to avoid ID conflicts
 
 ## 🔧 Configuration Management
 
@@ -313,6 +457,7 @@ CREATE TABLE player_weekly_stats (
 # Required Configuration
 SUPABASE_URL = "https://your-project.supabase.co"
 SUPABASE_KEY = "your-anon-key-or-service-key"
+DEEPSEEK_API_KEY = "your-deepseek-api-key"  # For LLM entity linking
 
 # Optional Configuration  
 LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR

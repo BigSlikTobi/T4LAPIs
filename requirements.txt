@@ -1,8 +1,10 @@
+certifi==2024.2.2
+httpx>=0.24.0
+nfl-data-py
+openai>=0.27.6
+pandas==2.2.1
+python-dotenv==1.0.1
 requests==2.31.0
 supabase>=2.13.0
-python-dotenv==1.0.1
-nfl-data-py
-pandas==2.2.1
-certifi==2024.2.2
 urllib3==2.2.1
-pytest
+pytest>=8.4.1

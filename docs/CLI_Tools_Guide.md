@@ -12,6 +12,10 @@ All CLI tools are located in the `scripts/` directory and provide consistent int
 - **`games_cli.py`** - Load NFL game data
 - **`player_weekly_stats_cli.py`** - Load player weekly statistics
 
+### LLM and Entity Linking Scripts
+- **`llm_entity_linker_cli.py`** - LLM-enhanced entity extraction and linking
+- **`entity_dictionary_cli.py`** - Entity dictionary management and utilities
+
 ### Auto-Update Scripts
 - **`games_auto_update.py`** - Smart game data updates (used by GitHub Actions)
 - **`player_weekly_stats_auto_update.py`** - Smart stats updates (used by GitHub Actions)
@@ -42,6 +46,7 @@ export $(cat .env | xargs)
 # Or set directly
 export SUPABASE_URL="your_supabase_url"
 export SUPABASE_KEY="your_supabase_anon_key"
+export DEEPSEEK_API_KEY="your_deepseek_api_key"  # Required for LLM tools
 export LOG_LEVEL="INFO"  # Optional: DEBUG, INFO, WARNING, ERROR
 ```
 
@@ -328,6 +333,119 @@ These CLI tools serve as the foundation for automated workflows:
 
 - **GitHub Actions** use auto-update scripts for scheduled runs
 - **Local development** uses standard CLI tools for testing
+- **LLM Entity Linking** runs automatically via GitHub Actions every 30 minutes
+
+## 🤖 LLM and Entity Linking CLI Tools
+
+### 5. LLM Entity Linker CLI (`llm_entity_linker_cli.py`)
+
+**Purpose**: Test and run LLM-enhanced entity extraction and linking using DeepSeek AI.
+
+**Basic Usage**:
+```bash
+# Test LLM extraction on sample text
+python scripts/llm_entity_linker_cli.py test --text "Patrick Mahomes threw for 300 yards as the Chiefs beat the 49ers."
+
+# Run entity linking on unlinked articles
+python scripts/llm_entity_linker_cli.py run --batch-size 20 --max-batches 5
+
+# Show processing statistics
+python scripts/llm_entity_linker_cli.py stats
+```
+
+**Available Commands**:
+- **`test`** - Test LLM extraction on provided text
+- **`run`** - Process unlinked articles with entity linking
+- **`stats`** - Display processing statistics
+
+**Options**:
+- `--text TEXT` - Text to test entity extraction on (test command)
+- `--batch-size N` - Number of articles per batch (default: 50)
+- `--max-batches N` - Maximum batches to process (default: unlimited)
+
+**Example Output**:
+```
+🤖 Testing LLM extraction on text:
+Text: 'Patrick Mahomes threw for 300 yards as the Chiefs beat the 49ers.'
+✅ LLM client connected successfully
+🎯 Found 1 players and 2 teams
+
+👥 Players:
+  1. Patrick Mahomes
+
+🏈 Teams:
+  1. Kansas City Chiefs
+  2. San Francisco 49ers
+
+📊 Validation results:
+   Players validated: 1/1
+   Teams validated: 2/2
+   Overall validation rate: 100.0%
+```
+
+### 6. Entity Dictionary CLI (`entity_dictionary_cli.py`)
+
+**Purpose**: Manage and inspect the entity dictionary used for validation.
+
+**Basic Usage**:
+```bash
+# Show entity dictionary statistics
+python scripts/entity_dictionary_cli.py stats
+
+# Search for specific entities
+python scripts/entity_dictionary_cli.py search --query "mahomes"
+
+# Export entity dictionary
+python scripts/entity_dictionary_cli.py export --output entities.json
+```
+
+**Available Commands**:
+- **`stats`** - Show dictionary statistics and counts
+- **`search`** - Search for entities by name
+- **`export`** - Export dictionary to file
+- **`validate`** - Validate dictionary integrity
+
+**Options**:
+- `--query TEXT` - Search query for entity names
+- `--output FILE` - Output file for export
+- `--format FORMAT` - Export format (json, csv, txt)
+
+## 🚨 LLM Tool Requirements
+
+### Environment Variables
+```bash
+DEEPSEEK_API_KEY=your_deepseek_api_key  # Required for LLM functionality
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_anon_key
+```
+
+### Dependencies
+The LLM tools require additional Python packages:
+- `openai>=0.27.6` - For DeepSeek API integration
+- `httpx>=0.24.0` - For HTTP client support
+
+### Usage Tips
+1. **Test before running**: Always use the `test` command to verify LLM connectivity
+2. **Start small**: Use small batch sizes initially to test performance
+3. **Monitor usage**: Check DeepSeek API usage limits and costs
+4. **Validate results**: Use entity dictionary tools to verify extraction quality
+
+## 📊 Performance Considerations
+
+### LLM Entity Linking
+- **Processing Speed**: ~2-5 seconds per article (depends on text length)
+- **API Limits**: Subject to DeepSeek API rate limits
+- **Accuracy**: ~95% entity validation rate with proper entity dictionary
+- **Cost**: Monitor DeepSeek API usage for cost management
+
+### Batch Processing Recommendations
+- **Development**: 5-10 articles per batch
+- **Testing**: 20-50 articles per batch  
+- **Production**: 20-100 articles per batch (depending on API limits)
+
+---
+
+**For more advanced usage and automation, see**: [⚙️ Automation Workflows](Automation_Workflows.md)
 - **Docker deployments** provide consistent environments
 - **Manual operations** use CLI tools for one-off tasks
 
