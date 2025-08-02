@@ -1,4 +1,4 @@
-# NFL Data Python - Tables and Columns Summary
+# NFL Data Python Library - Complete Reference
 
 *Generated on: 2025-07-26 22:14:56*
 
@@ -17,7 +17,7 @@ The `nfl_data_py` library provides access to **24 different NFL datasets** with 
 
 **Total: 841+ columns across 24 datasets**
 
-## 🎯 Core Tables (Your Primary Functions)
+## 🎯 Core Tables (Primary Functions)
 
 ### 1. Teams Table - `import_team_desc()`
 - **Shape:** 36 teams × 16 columns
