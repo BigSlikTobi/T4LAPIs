@@ -12,7 +12,8 @@ T4LAPIs is designed to handle complete NFL data workflows, from fetching raw dat
 - **🔄 Automated Data Pipelines**: GitHub Actions workflows for scheduled data updates
 - **🛠️ CLI Tools**: Command-line interfaces for manual data operations
 - **📈 Smart Update Logic**: Intelligent detection of data gaps and incremental updates
-- **🧪 Full Test Coverage**: Comprehensive test suite ensuring reliability
+- **� LLM-Enhanced Entity Linking**: DeepSeek AI integration for intelligent entity extraction and linking
+- **�🧪 Full Test Coverage**: Comprehensive test suite ensuring reliability (34+ LLM tests included)
 - **🐳 Docker Support**: Containerized deployment and execution
 - **🔧 Modular Architecture**: Separated concerns for fetching, transforming, and loading data
 
@@ -24,6 +25,7 @@ T4LAPIs/
 │   └── core/
 │       ├── data/              # Data management modules
 │       ├── db/                # Database initialization
+│       ├── llm/               # LLM integration and entity linking
 │       └── utils/             # Utility functions
 ├── scripts/                   # CLI tools and automation scripts
 ├── tests/                     # Test suite
@@ -72,6 +74,12 @@ python scripts/games_cli.py 2024 --dry-run
 
 # Load weekly player statistics
 python scripts/player_weekly_stats_cli.py 2024 --week 1 --dry-run
+
+# Run LLM-enhanced entity linking
+python scripts/llm_entity_linker_cli.py test --text "Patrick Mahomes threw for 300 yards as the Chiefs beat the 49ers."
+
+# Process articles with LLM entity linking
+python scripts/llm_entity_linker_cli.py run --batch-size 20 --max-batches 5
 ```
 
 ## 📊 Available NFL Data
@@ -82,6 +90,7 @@ The system provides access to **24 different NFL datasets** with **841+ columns*
 - **Advanced Stats**: Play-by-Play, Next Gen Stats, PFF Data
 - **Personnel Data**: Draft picks, Combine results, Contracts, Depth charts
 - **Specialized Data**: Injuries, Officials, Betting lines, Formation data
+- **Entity Linking**: LLM-enhanced extraction and linking of players and teams from text
 
 For detailed information about available datasets, see: [📋 NFL Data Reference](docs/NFL_Data_Reference.md)
 
@@ -101,6 +110,8 @@ Located in the `scripts/` directory, these tools provide command-line interfaces
 - **players_cli.py**: Player roster management  
 - **games_cli.py**: Game schedule management
 - **player_weekly_stats_cli.py**: Weekly statistics management
+- **llm_entity_linker_cli.py**: LLM-enhanced entity linking and extraction
+- **entity_dictionary_cli.py**: Entity dictionary management and utilities
 
 For detailed CLI documentation, see: [🛠️ CLI Tools Guide](docs/CLI_Tools_Guide.md)
 
@@ -112,6 +123,7 @@ GitHub Actions workflows provide scheduled data updates:
 - **Player Stats**: Weekly after Monday Night Football
 - **Player Rosters**: Weekly on Wednesdays
 - **Team Data**: Monthly updates
+- **Entity Linking**: Every 30 minutes between 16:30-00:30 UTC for article processing
 
 For workflow details, see: [⚙️ Automation Workflows](docs/Automation_Workflows.md)
 
@@ -137,6 +149,7 @@ Required environment variables:
 ```bash
 SUPABASE_URL=your_supabase_url
 SUPABASE_KEY=your_supabase_anon_key
+DEEPSEEK_API_KEY=your_deepseek_api_key  # For LLM entity linking
 LOG_LEVEL=INFO  # Optional: DEBUG, INFO, WARNING, ERROR
 ```
 
@@ -153,6 +166,12 @@ python -m pytest --cov=src tests/
 
 # Run specific test file
 python -m pytest tests/test_games_auto_update.py -v
+
+# Run LLM-specific tests
+python -m pytest tests/test_llm_init.py tests/test_llm_entity_linker.py -v
+
+# Run dedicated LLM test runner
+python tests/run_llm_tests.py
 ```
 
 For testing details, see: [🧪 Testing Guide](docs/Testing_Guide.md)
@@ -166,6 +185,7 @@ For testing details, see: [🧪 Testing Guide](docs/Testing_Guide.md)
 - [⚙️ Automation Workflows](docs/Automation_Workflows.md) - GitHub Actions workflows
 - [🧪 Testing Guide](docs/Testing_Guide.md) - Test suite documentation
 - [🔧 Technical Details](docs/Technical_Details.md) - Architecture and implementation details
+- [🤖 LLM Test Coverage](tests/LLM_TEST_COVERAGE.md) - LLM functionality testing documentation
 
 ### Specialized Topics
 
@@ -179,8 +199,10 @@ The system follows a modular architecture with clear separation of concerns:
 
 ```
 Data Flow: NFL API → Fetch → Transform → Validate → Load → Supabase
-                    ↓
+                    ↓                                    ↓
                 CLI Tools ← Auto Scripts ← GitHub Actions
+                    ↓
+            LLM Entity Linking → Article Processing → Entity Links
 ```
 
 ### Key Design Principles
@@ -188,6 +210,7 @@ Data Flow: NFL API → Fetch → Transform → Validate → Load → Supabase
 - **Separation of Concerns**: Distinct modules for fetching, transforming, and loading
 - **Error Resilience**: Comprehensive error handling and logging
 - **Data Integrity**: Validation and conflict resolution
+- **AI Integration**: LLM-enhanced entity extraction with validation
 - **Scalability**: Modular design supports easy extension
 - **Maintainability**: Clear code structure and comprehensive tests
 
@@ -210,6 +233,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - [nfl_data_py](https://github.com/cooperdff/nfl_data_py) - For providing comprehensive NFL data access
 - [Supabase](https://supabase.com/) - For the backend database platform
+- [DeepSeek AI](https://www.deepseek.com/) - For LLM-powered entity extraction capabilities
 - NFL community - For maintaining and contributing to open-source NFL data
 
 ---

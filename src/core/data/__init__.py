@@ -29,6 +29,11 @@ from .loaders import (
     GamesDataLoader,
 )
 
+from .entity_linking import (
+    EntityDictionaryBuilder,
+    build_entity_dictionary,
+)
+
 __all__ = [
     # Fetch functions
     'fetch_team_data',
@@ -51,4 +56,7 @@ __all__ = [
     'TeamsDataLoader',
     'PlayersDataLoader',
     'GamesDataLoader',
+    # Entity linking
+    'EntityDictionaryBuilder',
+    'build_entity_dictionary',
 ]

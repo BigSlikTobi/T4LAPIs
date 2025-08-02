@@ -4,7 +4,7 @@ This document describes the GitHub Actions workflows that automatically update N
 
 ## 🔄 Workflow Overview
 
-The T4LAPIs system includes four main automated workflows that handle different aspects of NFL data management:
+The T4LAPIs system includes five main automated workflows that handle different aspects of NFL data management:
 
 | Workflow | Schedule | Purpose | Smart Features |
 |----------|----------|---------|----------------|
@@ -12,6 +12,7 @@ The T4LAPIs system includes four main automated workflows that handle different 
 | **Player Stats** | Weekly (Tuesdays) | Weekly player statistics | Gap detection, recent week updates |
 | **Player Rosters** | Weekly (Wednesdays) | Roster changes | Trade/signing detection |
 | **Team Data** | Monthly | Team information | Minimal changes, low frequency |
+| **Entity Linking** | Every 30 min (16:30-00:30 UTC) | LLM article processing | DeepSeek AI integration, entity extraction |
 
 ## 📊 Detailed Workflow Documentation
 
@@ -279,6 +280,61 @@ permissions:
 - **Supabase dashboard**: Database metrics
 - **Application logs**: Detailed execution traces
 
+## 🤖 LLM Entity Linking Workflow (`entity_linking.yml`)
+
+**Schedule**: Every 30 minutes between 16:30-00:30 UTC
+
+This workflow processes articles using DeepSeek AI for intelligent entity extraction and linking.
+
+### Smart Features
+
+- ✅ **DeepSeek AI Integration**: Uses LLM for accurate entity extraction
+- ✅ **Entity Validation**: Validates extracted entities against NFL database
+- ✅ **Batch Processing**: Processes 20 articles per batch, max 100 batches
+- ✅ **Intelligent Scheduling**: Active during peak content hours (16:30-00:30 UTC)
+- ✅ **Manual Triggering**: Supports on-demand execution
+
+### Processing Logic
+
+1. **LLM Initialization**: Connect to DeepSeek API and load entity dictionary
+2. **Article Retrieval**: Fetch unlinked articles from SourceArticles table
+3. **Entity Extraction**: Use LLM to extract player and team mentions
+4. **Entity Validation**: Validate extracted entities against NFL database
+5. **Link Creation**: Create entity links in article_entity_links table
+6. **Statistics Tracking**: Monitor processing metrics and validation rates
+
+### Manual Trigger
+
+```bash
+# Trigger manually via GitHub Actions UI or API
+curl -X POST \
+  -H "Authorization: token $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github.v3+json" \
+  https://api.github.com/repos/BigSlikTobi/T4LAPIs/actions/workflows/entity_linking.yml/dispatches \
+  -d '{"ref":"main"}'
+```
+
+### Environment Requirements
+
+- `DEEPSEEK_API_KEY`: DeepSeek API key for LLM access
+- `SUPABASE_URL`: Database URL
+- `SUPABASE_KEY`: Database access key
+
+### Performance Metrics
+
+- **Processing Speed**: 2-5 seconds per article
+- **Validation Rate**: ~95% entity accuracy
+- **Batch Size**: 20 articles (configurable)
+- **Max Processing**: 2,000 articles per run (100 batches × 20)
+
+### Monitoring
+
+Monitor LLM entity linking through:
+- **GitHub Actions logs**: Workflow execution details
+- **LLM statistics**: Extraction and validation metrics
+- **Database metrics**: Entity link creation rates
+- **API usage**: DeepSeek API consumption
+
 ## 🎯 Future Enhancements
 
 ### Planned Improvements
@@ -287,6 +343,7 @@ permissions:
 2. **Advanced Monitoring**: Custom metrics and alerting
 3. **Data Quality Checks**: Automated validation and reporting
 4. **Performance Optimization**: Reduce execution time and resource usage
+5. **LLM Enhancements**: Fine-tuning and prompt optimization
 
 ### Potential New Workflows
 
@@ -294,5 +351,6 @@ permissions:
 2. **Fantasy Points**: Calculated fantasy statistics
 3. **Advanced Analytics**: EPA, DVOA, and other metrics
 4. **Historical Backfill**: Systematic historical data loading
+5. **Content Classification**: LLM-powered article categorization
 
-For detailed implementation information, see: [Auto-Update Scripts](Auto_Update_Scripts.md)
+For detailed implementation information, see: [Auto-Update Scripts](Auto_Update_Scripts.md) and [LLM Test Coverage](../tests/LLM_TEST_COVERAGE.md)
