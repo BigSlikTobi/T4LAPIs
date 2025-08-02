@@ -183,10 +183,13 @@ class TestPreferenceEndpoints:
         }
         
         response = app_client.post(f"/users/{user_id}/preferences", json=preferences_data)
-        assert response.status_code == 400
+        assert response.status_code == 422  # Pydantic validation error
         
         data = response.json()
-        assert data["detail"]["error"] == "Invalid entity type"
+        # Pydantic validation returns a different error structure
+        assert "detail" in data
+        # Check that it's related to enum validation
+        assert any("Input should be" in str(detail) or "enum" in str(detail).lower() for detail in data["detail"])
     
     def test_get_preferences_success(self, app_client, mock_database_managers):
         """Test successful preference retrieval."""

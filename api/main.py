@@ -12,6 +12,7 @@ from typing import Dict, Any, List
 import logging
 import uuid
 from datetime import datetime, timezone
+from enum import Enum
 
 # Add src directory to Python path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
@@ -35,11 +36,18 @@ users_db = None
 preferences_db = None
 
 
+# Enum for entity types
+class EntityType(str, Enum):
+    """Enum for valid entity types."""
+    player = "player"
+    team = "team"
+
+
 # Pydantic models for API request/response schemas
 class EntityPreference(BaseModel):
     """Model for a single entity preference (team or player)."""
     entity_id: str = Field(..., description="ID of the entity (player_id or team abbreviation)")
-    type: str = Field(..., description="Type of entity: 'player' or 'team'")
+    type: EntityType = Field(..., description="Type of entity: 'player' or 'team'")
     
     model_config = {
         "json_schema_extra": {
@@ -319,17 +327,11 @@ async def set_user_preferences(user_id: str, preferences: PreferencesRequest) ->
                 }
             )
         
-        # Validate entity types
-        valid_types = {'player', 'team'}
-        for entity in preferences.entities:
-            if entity.type not in valid_types:
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "error": "Invalid entity type",
-                        "message": f"Entity type must be one of: {', '.join(valid_types)}"
-                    }
-                )
+        # Clear existing preferences for this user first (upsert behavior)
+        delete_result = preferences_db.supabase.table("user_preferences").delete().eq("user_id", user_id).execute()
+        
+        if hasattr(delete_result, 'error') and delete_result.error:
+            logger.warning(f"Warning: Could not clear existing preferences for user {user_id}: {delete_result.error}")
         
         current_time = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
         preference_records = []
@@ -340,14 +342,11 @@ async def set_user_preferences(user_id: str, preferences: PreferencesRequest) ->
                 'preference_id': str(uuid.uuid4()),
                 'user_id': user_id,
                 'entity_id': entity.entity_id,
-                'entity_type': entity.type,
+                'entity_type': entity.type.value,  # Convert enum to string
                 'created_at': current_time,
                 'updated_at': current_time
             }
             preference_records.append(preference_record)
-        
-        # Delete existing preferences for this user (for clean upsert)
-        delete_result = preferences_db.supabase.table("user_preferences").delete().eq("user_id", user_id).execute()
         
         if hasattr(delete_result, 'error') and delete_result.error:
             logger.warning(f"Warning: Could not clear existing preferences for user {user_id}: {delete_result.error}")
@@ -594,23 +593,12 @@ async def update_user_preference(user_id: str, preference_id: str, preference: E
                 }
             )
         
-        # Validate entity type
-        valid_types = {'player', 'team'}
-        if preference.type not in valid_types:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "Invalid entity type",
-                    "message": f"Entity type must be one of: {', '.join(valid_types)}"
-                }
-            )
-        
         current_time = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
         
         # Update the preference
         update_data = {
             'entity_id': preference.entity_id,
-            'entity_type': preference.type,
+            'entity_type': preference.type.value,  # Convert enum to string
             'updated_at': current_time
         }
         
@@ -633,7 +621,7 @@ async def update_user_preference(user_id: str, preference_id: str, preference: E
             "user_id": user_id,
             "preference_id": preference_id,
             "entity_id": preference.entity_id,
-            "entity_type": preference.type,
+            "entity_type": preference.type.value,  # Convert enum to string
             "message": "Preference updated successfully"
         }
         
