@@ -106,6 +106,11 @@ class LLMEntityLinker:
     def get_unlinked_articles(self, batch_size: int) -> List[Dict[str, Any]]:
         """Fetch articles that don't have any entity links yet.
         
+        This method implements a three-tier strategy to ensure only unlinked articles are processed:
+        1. Try RPC function 'get_unlinked_articles' (most efficient)
+        2. Fall back to LEFT JOIN query to filter out linked articles
+        3. Manual filtering as final fallback to avoid reprocessing
+        
         Args:
             batch_size: Maximum number of articles to fetch
             
@@ -138,22 +143,59 @@ class LLMEntityLinker:
             except Exception:
                 self.logger.info("RPC function not available, using fallback query...")
                 
-                # Fallback: get articles that might not have links
-                response = self.articles_db.supabase.table("SourceArticles").select(
-                    "id, Content"
-                ).filter('Content', 'neq', '').limit(batch_size).execute()
-                
-                if hasattr(response, 'error') and response.error:
-                    self.logger.error(f"Fallback query failed: {response.error}")
-                    return []
-                
-                if not hasattr(response, 'data') or not response.data:
-                    self.logger.info("No articles found in fallback query")
-                    return []
-                
-                articles = response.data
-                self.logger.info(f"Found {len(articles)} articles via fallback query")
-                return articles
+                # Fallback: get articles that don't have entity links using LEFT JOIN
+                try:
+                    # First try with a direct LEFT JOIN query
+                    response = self.articles_db.supabase.from_("SourceArticles").select(
+                        "id, Content"
+                    ).is_("article_entity_links.article_id", "null").filter(
+                        'Content', 'neq', ''
+                    ).limit(batch_size).execute()
+                    
+                    if hasattr(response, 'error') and response.error:
+                        raise Exception("LEFT JOIN query failed")
+                    
+                    if hasattr(response, 'data') and response.data:
+                        articles = response.data
+                        self.logger.info(f"Found {len(articles)} unlinked articles via LEFT JOIN")
+                        return articles
+                        
+                except Exception:
+                    self.logger.info("LEFT JOIN query failed, using manual filtering...")
+                    
+                    # Manual fallback: get all articles then filter out linked ones
+                    # First get all articles with content
+                    articles_response = self.articles_db.supabase.table("SourceArticles").select(
+                        "id, Content"
+                    ).filter('Content', 'neq', '').limit(batch_size * 2).execute()  # Get more to account for filtering
+                    
+                    if hasattr(articles_response, 'error') and articles_response.error:
+                        self.logger.error(f"Fallback articles query failed: {articles_response.error}")
+                        return []
+                    
+                    if not hasattr(articles_response, 'data') or not articles_response.data:
+                        self.logger.info("No articles found in fallback query")
+                        return []
+                    
+                    all_articles = articles_response.data
+                    
+                    # Get all article IDs that already have entity links
+                    links_response = self.links_db.supabase.table("article_entity_links").select(
+                        "article_id"
+                    ).execute()
+                    
+                    linked_article_ids = set()
+                    if hasattr(links_response, 'data') and links_response.data:
+                        linked_article_ids = {link['article_id'] for link in links_response.data}
+                    
+                    # Filter out articles that already have links
+                    unlinked_articles = [
+                        article for article in all_articles 
+                        if article['id'] not in linked_article_ids
+                    ][:batch_size]  # Limit to requested batch size
+                    
+                    self.logger.info(f"Found {len(unlinked_articles)} unlinked articles via manual filtering")
+                    return unlinked_articles
             
         except Exception as e:
             self.logger.error(f"Exception while fetching unlinked articles: {e}")

@@ -12,6 +12,15 @@ class TestEntityDictionaryBuilder(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures."""
+        # Mock DatabaseManager to prevent actual database connections
+        self.db_patcher = patch('src.core.data.entity_linking.DatabaseManager')
+        self.mock_db_manager = self.db_patcher.start()
+        
+        # Mock the database instances
+        self.mock_players_db = Mock()
+        self.mock_teams_db = Mock()
+        self.mock_db_manager.side_effect = [self.mock_players_db, self.mock_teams_db]
+        
         # Sample player data from database
         self.sample_players_data = [
             {
@@ -59,40 +68,34 @@ class TestEntityDictionaryBuilder(unittest.TestCase):
             }
         ]
     
-    @patch('src.core.data.entity_linking.DatabaseManager')
-    def test_init_success(self, mock_db_manager_class):
+    def tearDown(self):
+        """Clean up test fixtures."""
+        self.db_patcher.stop()
+    
+    def test_init_success(self):
         """Test successful initialization of EntityDictionaryBuilder."""
-        mock_players_db = Mock()
-        mock_teams_db = Mock()
-        mock_db_manager_class.side_effect = [mock_players_db, mock_teams_db]
-        
         builder = EntityDictionaryBuilder()
         
-        self.assertEqual(builder.players_db, mock_players_db)
-        self.assertEqual(builder.teams_db, mock_teams_db)
+        self.assertEqual(builder.players_db, self.mock_players_db)
+        self.assertEqual(builder.teams_db, self.mock_teams_db)
         
         # Verify DatabaseManager was called correctly
         expected_calls = [unittest.mock.call("players"), unittest.mock.call("teams")]
-        mock_db_manager_class.assert_has_calls(expected_calls)
+        self.mock_db_manager.assert_has_calls(expected_calls)
     
-    @patch('src.core.data.entity_linking.DatabaseManager')
-    def test_build_entity_dictionary_success(self, mock_db_manager_class):
+    def test_build_entity_dictionary_success(self):
         """Test successful building of entity dictionary."""
         # Mock database managers
-        mock_players_db = Mock()
-        mock_teams_db = Mock()
-        mock_db_manager_class.side_effect = [mock_players_db, mock_teams_db]
-        
         # Mock database responses
         mock_players_response = Mock()
         mock_players_response.error = None
         mock_players_response.data = self.sample_players_data
-        mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_players_response
+        self.mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_players_response
         
         mock_teams_response = Mock()
         mock_teams_response.error = None
         mock_teams_response.data = self.sample_teams_data
-        mock_teams_db.supabase.table.return_value.select.return_value.execute.return_value = mock_teams_response
+        self.mock_teams_db.supabase.table.return_value.select.return_value.execute.return_value = mock_teams_response
         
         builder = EntityDictionaryBuilder()
         result = builder.build_entity_dictionary()
@@ -145,18 +148,13 @@ class TestEntityDictionaryBuilder(unittest.TestCase):
         self.assertIn('Kansas City', result)
         self.assertEqual(result['Kansas City'], 'KC')
     
-    @patch('src.core.data.entity_linking.DatabaseManager')
-    def test_build_player_mappings_success(self, mock_db_manager_class):
+    def test_build_player_mappings_success(self):
         """Test successful building of player mappings."""
-        mock_players_db = Mock()
-        mock_teams_db = Mock()
-        mock_db_manager_class.side_effect = [mock_players_db, mock_teams_db]
-        
         # Mock database response
         mock_response = Mock()
         mock_response.error = None
         mock_response.data = self.sample_players_data
-        mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
+        self.mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
         
         builder = EntityDictionaryBuilder()
         result = builder._build_player_mappings()
@@ -178,54 +176,39 @@ class TestEntityDictionaryBuilder(unittest.TestCase):
             self.assertEqual(result[name], expected_id)
         
         # Verify database query was called correctly
-        mock_players_db.supabase.table.assert_called_with("players")
-        mock_players_db.supabase.table.return_value.select.assert_called_with(
+        self.mock_players_db.supabase.table.assert_called_with("players")
+        self.mock_players_db.supabase.table.return_value.select.assert_called_with(
             "player_id, full_name, display_name, common_first_name, first_name, last_name"
         )
     
-    @patch('src.core.data.entity_linking.DatabaseManager')
-    def test_build_player_mappings_database_error(self, mock_db_manager_class):
+    def test_build_player_mappings_database_error(self):
         """Test player mappings building with database error."""
-        mock_players_db = Mock()
-        mock_teams_db = Mock()
-        mock_db_manager_class.side_effect = [mock_players_db, mock_teams_db]
-        
         # Mock database response with error
         mock_response = Mock()
         mock_response.error = "Database connection failed"
         mock_response.data = None
-        mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
+        self.mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
         
         builder = EntityDictionaryBuilder()
         result = builder._build_player_mappings()
         
         self.assertEqual(result, {})
     
-    @patch('src.core.data.entity_linking.DatabaseManager')
-    def test_build_player_mappings_no_data(self, mock_db_manager_class):
+    def test_build_player_mappings_no_data(self):
         """Test player mappings building with no data."""
-        mock_players_db = Mock()
-        mock_teams_db = Mock()
-        mock_db_manager_class.side_effect = [mock_players_db, mock_teams_db]
-        
         # Mock database response with no data
         mock_response = Mock()
         mock_response.error = None
         mock_response.data = []
-        mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
+        self.mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
         
         builder = EntityDictionaryBuilder()
         result = builder._build_player_mappings()
         
         self.assertEqual(result, {})
     
-    @patch('src.core.data.entity_linking.DatabaseManager')
-    def test_build_player_mappings_with_invalid_data(self, mock_db_manager_class):
+    def test_build_player_mappings_with_invalid_data(self):
         """Test player mappings building with invalid/incomplete data."""
-        mock_players_db = Mock()
-        mock_teams_db = Mock()
-        mock_db_manager_class.side_effect = [mock_players_db, mock_teams_db]
-        
         # Mock database response with incomplete data
         invalid_players_data = [
             {
@@ -273,7 +256,7 @@ class TestEntityDictionaryBuilder(unittest.TestCase):
         mock_response = Mock()
         mock_response.error = None
         mock_response.data = invalid_players_data
-        mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
+        self.mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
         
         builder = EntityDictionaryBuilder()
         result = builder._build_player_mappings()
@@ -290,18 +273,13 @@ class TestEntityDictionaryBuilder(unittest.TestCase):
             self.assertIn(name, result)
             self.assertEqual(result[name], expected_id)
     
-    @patch('src.core.data.entity_linking.DatabaseManager')
-    def test_build_team_mappings_success(self, mock_db_manager_class):
+    def test_build_team_mappings_success(self):
         """Test successful building of team mappings."""
-        mock_players_db = Mock()
-        mock_teams_db = Mock()
-        mock_db_manager_class.side_effect = [mock_players_db, mock_teams_db]
-        
         # Mock database response
         mock_response = Mock()
         mock_response.error = None
         mock_response.data = self.sample_teams_data
-        mock_teams_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
+        self.mock_teams_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
         
         builder = EntityDictionaryBuilder()
         result = builder._build_team_mappings()
@@ -328,34 +306,24 @@ class TestEntityDictionaryBuilder(unittest.TestCase):
         self.assertEqual(result['Niners'], 'SF')
         
         # Verify database query was called correctly
-        mock_teams_db.supabase.table.assert_called_with("teams")
-        mock_teams_db.supabase.table.return_value.select.assert_called_with("team_abbr, team_name, team_nick")
+        self.mock_teams_db.supabase.table.assert_called_with("teams")
+        self.mock_teams_db.supabase.table.return_value.select.assert_called_with("team_abbr, team_name, team_nick")
     
-    @patch('src.core.data.entity_linking.DatabaseManager')
-    def test_build_team_mappings_database_error(self, mock_db_manager_class):
+    def test_build_team_mappings_database_error(self):
         """Test team mappings building with database error."""
-        mock_players_db = Mock()
-        mock_teams_db = Mock()
-        mock_db_manager_class.side_effect = [mock_players_db, mock_teams_db]
-        
         # Mock database response with error
         mock_response = Mock()
         mock_response.error = "Database connection failed"
         mock_response.data = None
-        mock_teams_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
+        self.mock_teams_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
         
         builder = EntityDictionaryBuilder()
         result = builder._build_team_mappings()
         
         self.assertEqual(result, {})
     
-    @patch('src.core.data.entity_linking.DatabaseManager')
-    def test_build_team_mappings_with_invalid_data(self, mock_db_manager_class):
+    def test_build_team_mappings_with_invalid_data(self):
         """Test team mappings building with invalid/incomplete data."""
-        mock_players_db = Mock()
-        mock_teams_db = Mock()
-        mock_db_manager_class.side_effect = [mock_players_db, mock_teams_db]
-        
         # Mock database response with incomplete data
         invalid_teams_data = [
             {
@@ -378,7 +346,7 @@ class TestEntityDictionaryBuilder(unittest.TestCase):
         mock_response = Mock()
         mock_response.error = None
         mock_response.data = invalid_teams_data
-        mock_teams_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
+        self.mock_teams_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
         
         builder = EntityDictionaryBuilder()
         result = builder._build_team_mappings()
@@ -421,24 +389,19 @@ class TestEntityDictionaryBuilder(unittest.TestCase):
         unknown_alternatives = builder._get_team_alternatives('UNK', 'Unknown Team', 'Unknown')
         self.assertEqual(unknown_alternatives, {})
     
-    @patch('src.core.data.entity_linking.DatabaseManager')
-    def test_build_entity_dictionary_partial_failure(self, mock_db_manager_class):
+    def test_build_entity_dictionary_partial_failure(self):
         """Test entity dictionary building with partial failures."""
-        mock_players_db = Mock()
-        mock_teams_db = Mock()
-        mock_db_manager_class.side_effect = [mock_players_db, mock_teams_db]
-        
         # Mock successful players response
         mock_players_response = Mock()
         mock_players_response.error = None
         mock_players_response.data = self.sample_players_data
-        mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_players_response
+        self.mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_players_response
         
         # Mock failed teams response
         mock_teams_response = Mock()
         mock_teams_response.error = "Teams table error"
         mock_teams_response.data = None
-        mock_teams_db.supabase.table.return_value.select.return_value.execute.return_value = mock_teams_response
+        self.mock_teams_db.supabase.table.return_value.select.return_value.execute.return_value = mock_teams_response
         
         builder = EntityDictionaryBuilder()
         result = builder.build_entity_dictionary()
@@ -450,21 +413,16 @@ class TestEntityDictionaryBuilder(unittest.TestCase):
         self.assertNotIn('KC', result)
         self.assertNotIn('Kansas City Chiefs', result)
     
-    @patch('src.core.data.entity_linking.DatabaseManager')
-    def test_build_entity_dictionary_exception_handling(self, mock_db_manager_class):
+    def test_build_entity_dictionary_exception_handling(self):
         """Test entity dictionary building with exceptions."""
-        mock_players_db = Mock()
-        mock_teams_db = Mock()
-        mock_db_manager_class.side_effect = [mock_players_db, mock_teams_db]
-        
         # Mock exception in players query
-        mock_players_db.supabase.table.return_value.select.return_value.execute.side_effect = Exception("Database error")
+        self.mock_players_db.supabase.table.return_value.select.return_value.execute.side_effect = Exception("Database error")
         
         # Mock successful teams response
         mock_teams_response = Mock()
         mock_teams_response.error = None
         mock_teams_response.data = self.sample_teams_data
-        mock_teams_db.supabase.table.return_value.select.return_value.execute.return_value = mock_teams_response
+        self.mock_teams_db.supabase.table.return_value.select.return_value.execute.return_value = mock_teams_response
         
         builder = EntityDictionaryBuilder()
         result = builder.build_entity_dictionary()
