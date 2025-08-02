@@ -12,10 +12,11 @@ T4LAPIs is designed to handle complete NFL data workflows, from fetching raw dat
 - **🔄 Automated Data Pipelines**: GitHub Actions workflows for scheduled data updates
 - **🛠️ CLI Tools**: Command-line interfaces for manual data operations
 - **📈 Smart Update Logic**: Intelligent detection of data gaps and incremental updates
-- **� LLM-Enhanced Entity Linking**: DeepSeek AI integration for intelligent entity extraction and linking
-- **�🧪 Full Test Coverage**: Comprehensive test suite ensuring reliability (34+ LLM tests included)
+- **🤖 LLM-Enhanced Entity Linking**: DeepSeek AI integration for intelligent entity extraction and linking
+- **🧪 Full Test Coverage**: Comprehensive test suite ensuring reliability (34+ LLM tests included)
 - **🐳 Docker Support**: Containerized deployment and execution
 - **🔧 Modular Architecture**: Separated concerns for fetching, transforming, and loading data
+- **🚀 FastAPI REST API**: Complete CRUD operations for user and preference management with 7 endpoints
 
 ## 📁 Project Structure
 
@@ -27,9 +28,14 @@ T4LAPIs/
 │       ├── db/                # Database initialization
 │       ├── llm/               # LLM integration and entity linking
 │       └── utils/             # Utility functions
+├── api/                       # FastAPI REST API
+│   ├── main.py               # Complete CRUD API with 7 endpoints
+│   ├── Dockerfile            # Container configuration
+│   ├── docker-compose.yml    # Development deployment
+│   └── test_endpoints.py     # API testing scripts
 ├── scripts/                   # CLI tools and automation scripts
-├── tests/                     # Test suite
-├── docs/                      # Documentation (see links below)
+├── tests/                     # Test suite (50+ comprehensive tests)
+├── docs/                      # Documentation (centralized)
 ├── .github/workflows/         # GitHub Actions automation
 ├── examples/                  # Usage examples
 ├── injury_updates/            # Injury data specific tools
@@ -81,6 +87,84 @@ python scripts/llm_entity_linker_cli.py test --text "Patrick Mahomes threw for 3
 # Process articles with LLM entity linking
 python scripts/llm_entity_linker_cli.py run --batch-size 20 --max-batches 5
 ```
+
+## 🚀 FastAPI REST API
+
+The project includes a complete FastAPI-based REST API for managing users and their NFL team/player preferences.
+
+### API Features
+
+✅ **Complete CRUD Operations**
+- User management (create, delete) 
+- Preference management (create, read, update, delete individual/bulk)
+- UUID validation and comprehensive error handling
+- CASCADE deletion support (deleting user removes all preferences)
+
+✅ **7 API Endpoints**
+- `POST /users/` - Create user
+- `DELETE /users/{user_id}` - Delete user 
+- `POST /users/{user_id}/preferences` - Set user preferences
+- `GET /users/{user_id}/preferences` - Get user preferences
+- `PUT /users/{user_id}/preferences/{preference_id}` - Update specific preference  
+- `DELETE /users/{user_id}/preferences` - Delete all user preferences
+- `DELETE /users/{user_id}/preferences/{preference_id}` - Delete specific preference
+
+✅ **Production Ready**
+- Docker containerization with security hardening
+- Interactive API documentation (Swagger UI + ReDoc)
+- Comprehensive error handling and validation
+- Database integration with Supabase
+
+### Quick Start API
+
+#### 1. Activate Virtual Environment (REQUIRED)
+```bash
+# Navigate to project root
+cd T4LAPIs
+
+# Activate virtual environment - THIS IS REQUIRED
+source venv/bin/activate
+```
+
+#### 2. Run the API
+
+**Option A: Local Development (Recommended)**
+```bash
+# Make sure you're in the api directory and venv is activated
+cd api
+python main.py
+```
+
+**Option B: Docker (Production)**
+```bash
+# Build and run with Docker Compose
+cd api
+docker-compose up -d --build
+
+# Or use the helper script
+./docker.sh compose
+```
+
+#### 3. Test the API
+
+```bash
+# Health check
+curl http://localhost:8000/health
+
+# Create user
+curl -X POST http://localhost:8000/users/
+
+# Set preferences (replace {user_id} with actual UUID)
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"entities": [{"entity_id": "KC", "type": "team"}]}' \
+  http://localhost:8000/users/{user_id}/preferences
+```
+
+#### 4. Interactive Documentation
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+
+For complete API documentation, see: [📚 API Reference](docs/API_Reference.md)
 
 ## 📊 Available NFL Data
 
@@ -167,14 +251,24 @@ python -m pytest --cov=src tests/
 # Run specific test file
 python -m pytest tests/test_games_auto_update.py -v
 
-# Run LLM-specific tests
+# Run LLM-specific tests (34 tests total)
 python -m pytest tests/test_llm_init.py tests/test_llm_entity_linker.py -v
 
 # Run dedicated LLM test runner
 python tests/run_llm_tests.py
+
+# Run FastAPI tests (15+ tests)
+python -m pytest tests/test_fastapi_basic.py tests/test_user_preference_api.py tests/test_crud_operations.py -v
 ```
 
-For testing details, see: [🧪 Testing Guide](docs/Testing_Guide.md)
+### Test Coverage Summary
+- **Core Data Pipeline**: 15+ tests for fetching, transforming, and loading NFL data
+- **LLM Integration**: 34 comprehensive tests for entity linking and DeepSeek AI integration
+- **FastAPI API**: 15+ tests for complete CRUD operations and error handling
+- **CLI Tools**: Multiple tests for command-line interfaces
+- **Database Operations**: Tests for all database interactions and conflict resolution
+
+For detailed testing documentation, see: [🧪 Testing Guide](docs/Testing_Guide.md) and [🤖 LLM Test Coverage](docs/LLM_Test_Coverage.md)
 
 ## 📖 Documentation
 
@@ -185,7 +279,8 @@ For testing details, see: [🧪 Testing Guide](docs/Testing_Guide.md)
 - [⚙️ Automation Workflows](docs/Automation_Workflows.md) - GitHub Actions workflows
 - [🧪 Testing Guide](docs/Testing_Guide.md) - Test suite documentation
 - [🔧 Technical Details](docs/Technical_Details.md) - Architecture and implementation details
-- [🤖 LLM Test Coverage](tests/LLM_TEST_COVERAGE.md) - LLM functionality testing documentation
+- [🚀 API Reference](docs/API_Reference.md) - Complete FastAPI REST API documentation
+- [🤖 LLM Test Coverage](docs/LLM_Test_Coverage.md) - LLM functionality testing documentation
 
 ### Specialized Topics
 
@@ -200,9 +295,9 @@ The system follows a modular architecture with clear separation of concerns:
 ```
 Data Flow: NFL API → Fetch → Transform → Validate → Load → Supabase
                     ↓                                    ↓
-                CLI Tools ← Auto Scripts ← GitHub Actions
-                    ↓
             LLM Entity Linking → Article Processing → Entity Links
+                    ↓
+            FastAPI REST API → User/Preference Management → Database
 ```
 
 ### Key Design Principles
@@ -211,8 +306,48 @@ Data Flow: NFL API → Fetch → Transform → Validate → Load → Supabase
 - **Error Resilience**: Comprehensive error handling and logging
 - **Data Integrity**: Validation and conflict resolution
 - **AI Integration**: LLM-enhanced entity extraction with validation
+- **API-First Design**: RESTful API with complete CRUD operations
 - **Scalability**: Modular design supports easy extension
 - **Maintainability**: Clear code structure and comprehensive tests
+
+## 🎯 Project Status & Achievements
+
+### ✅ Epic 2: User & Preference API (COMPLETED)
+
+**All Tasks Successfully Completed:**
+
+#### Task 4: FastAPI Project Setup ✅
+- Modern FastAPI application with proper structure
+- Comprehensive Pydantic v2 models
+- CORS middleware and lifespan management
+- Complete test suite (5 basic functionality tests)
+
+#### Task 5: User & Preference Endpoints ✅
+- **POST /users/** - Create new user with UUID generation
+- **POST /users/{user_id}/preferences** - Set user preferences with validation
+- **GET /users/{user_id}/preferences** - Retrieve user preferences
+- Comprehensive validation and error handling
+- Additional test suite (10 endpoint tests)
+
+#### Task 6: Docker Containerization ✅
+- Optimized Dockerfile with Python 3.13-slim
+- Docker Compose configuration for easy deployment
+- Security hardening (non-root user)
+- Helper scripts for container management
+
+#### Enhanced CRUD Operations ✅
+- **DELETE /users/{user_id}** - Delete user with CASCADE preference deletion
+- **PUT /users/{user_id}/preferences/{preference_id}** - Update specific preference
+- **DELETE /users/{user_id}/preferences** - Delete all user preferences
+- **DELETE /users/{user_id}/preferences/{preference_id}** - Delete specific preference
+
+### 🚀 Production Ready Features
+- **7 Complete API Endpoints** with full CRUD operations
+- **34 LLM Tests** ensuring AI functionality reliability
+- **15+ API Tests** covering all endpoints and error scenarios
+- **Interactive Documentation** (Swagger UI + ReDoc)
+- **Database Integration** with Supabase and CASCADE operations
+- **Docker Support** for consistent deployment
 
 ## 🤝 Contributing
 
