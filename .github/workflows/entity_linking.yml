@@ -30,5 +30,9 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run LLM Entity Linking
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           python scripts/llm_entity_linker_cli.py run --batch-size 20 --max-batches 20
