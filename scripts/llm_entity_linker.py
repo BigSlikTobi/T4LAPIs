@@ -122,7 +122,7 @@ class LLMEntityLinker:
                 return articles
             # If there's an error, it will fall through to the next block
             if hasattr(response, 'error') and response.error:
-                 raise ConnectionError("RPC function not available or failed.")
+                raise ConnectionError("RPC function not available or failed.")
         except Exception:
             self.logger.info("RPC function not available, using fallback query...")
 
