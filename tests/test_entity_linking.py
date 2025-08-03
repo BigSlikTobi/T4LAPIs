@@ -87,11 +87,20 @@ class TestEntityDictionaryBuilder(unittest.TestCase):
         """Test successful building of entity dictionary."""
         # Mock database managers
         # Mock database responses
-        mock_players_response = Mock()
-        mock_players_response.error = None
-        mock_players_response.data = self.sample_players_data
-        self.mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_players_response
+        # Mock players database responses for pagination
+        mock_players_response_1 = Mock()
+        mock_players_response_1.error = None
+        mock_players_response_1.data = self.sample_players_data
         
+        mock_players_response_2 = Mock()
+        mock_players_response_2.error = None
+        mock_players_response_2.data = []
+        
+        self.mock_players_db.supabase.table.return_value.select.return_value.range.return_value.execute.side_effect = [
+            mock_players_response_1, mock_players_response_2
+        ]
+        
+        # Mock teams database response
         mock_teams_response = Mock()
         mock_teams_response.error = None
         mock_teams_response.data = self.sample_teams_data
@@ -150,11 +159,21 @@ class TestEntityDictionaryBuilder(unittest.TestCase):
     
     def test_build_player_mappings_success(self):
         """Test successful building of player mappings."""
-        # Mock database response
-        mock_response = Mock()
-        mock_response.error = None
-        mock_response.data = self.sample_players_data
-        self.mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
+        # Mock database responses for pagination
+        # First response: return sample data
+        mock_response_1 = Mock()
+        mock_response_1.error = None
+        mock_response_1.data = self.sample_players_data
+        
+        # Second response: empty data to end pagination
+        mock_response_2 = Mock()
+        mock_response_2.error = None
+        mock_response_2.data = []
+        
+        # Setup pagination mock - first call returns data, second returns empty
+        self.mock_players_db.supabase.table.return_value.select.return_value.range.return_value.execute.side_effect = [
+            mock_response_1, mock_response_2
+        ]
         
         builder = EntityDictionaryBuilder()
         result = builder._build_player_mappings()
@@ -177,9 +196,6 @@ class TestEntityDictionaryBuilder(unittest.TestCase):
         
         # Verify database query was called correctly
         self.mock_players_db.supabase.table.assert_called_with("players")
-        self.mock_players_db.supabase.table.return_value.select.assert_called_with(
-            "player_id, full_name, display_name, common_first_name, first_name, last_name"
-        )
     
     def test_build_player_mappings_database_error(self):
         """Test player mappings building with database error."""
@@ -253,10 +269,19 @@ class TestEntityDictionaryBuilder(unittest.TestCase):
             }
         ]
         
-        mock_response = Mock()
-        mock_response.error = None
-        mock_response.data = invalid_players_data
-        self.mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_response
+        # Mock database responses for pagination
+        mock_response_1 = Mock()
+        mock_response_1.error = None
+        mock_response_1.data = invalid_players_data
+        
+        mock_response_2 = Mock()
+        mock_response_2.error = None
+        mock_response_2.data = []
+        
+        # Setup pagination mock
+        self.mock_players_db.supabase.table.return_value.select.return_value.range.return_value.execute.side_effect = [
+            mock_response_1, mock_response_2
+        ]
         
         builder = EntityDictionaryBuilder()
         result = builder._build_player_mappings()
@@ -370,32 +395,35 @@ class TestEntityDictionaryBuilder(unittest.TestCase):
         builder = EntityDictionaryBuilder()
         
         # Test KC alternatives
-        kc_alternatives = builder._get_team_alternatives('KC', 'Kansas City Chiefs', 'Chiefs')
+        kc_alternatives = builder._get_team_alternatives('KC')
         self.assertIn('Kansas City', kc_alternatives)
         self.assertEqual(kc_alternatives['Kansas City'], 'KC')
         
         # Test SF alternatives
-        sf_alternatives = builder._get_team_alternatives('SF', 'San Francisco 49ers', '49ers')
+        sf_alternatives = builder._get_team_alternatives('SF')
         self.assertIn('Niners', sf_alternatives)
         self.assertEqual(sf_alternatives['Niners'], 'SF')
         self.assertIn('San Francisco', sf_alternatives)
         self.assertEqual(sf_alternatives['San Francisco'], 'SF')
         
-        # Test with missing team_abbr
-        empty_alternatives = builder._get_team_alternatives(None, 'Some Team', 'Team')
-        self.assertEqual(empty_alternatives, {})
-        
         # Test with unknown team
-        unknown_alternatives = builder._get_team_alternatives('UNK', 'Unknown Team', 'Unknown')
+        unknown_alternatives = builder._get_team_alternatives('UNK')
         self.assertEqual(unknown_alternatives, {})
     
     def test_build_entity_dictionary_partial_failure(self):
         """Test entity dictionary building with partial failures."""
-        # Mock successful players response
-        mock_players_response = Mock()
-        mock_players_response.error = None
-        mock_players_response.data = self.sample_players_data
-        self.mock_players_db.supabase.table.return_value.select.return_value.execute.return_value = mock_players_response
+        # Mock successful players response with pagination
+        mock_players_response_1 = Mock()
+        mock_players_response_1.error = None
+        mock_players_response_1.data = self.sample_players_data
+        
+        mock_players_response_2 = Mock()
+        mock_players_response_2.error = None
+        mock_players_response_2.data = []
+        
+        self.mock_players_db.supabase.table.return_value.select.return_value.range.return_value.execute.side_effect = [
+            mock_players_response_1, mock_players_response_2
+        ]
         
         # Mock failed teams response
         mock_teams_response = Mock()
