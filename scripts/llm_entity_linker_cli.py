@@ -64,12 +64,21 @@ def test_llm_extraction(text: str) -> None:
         if players:
             print(f"\n👥 Players:")
             for i, player in enumerate(players, 1):
-                print(f"  {i}. {player}")
+                if isinstance(player, dict) and 'name' in player:
+                    print(f"  {i}. {player['name']} (confidence: {player.get('confidence', 'N/A')})")
+                else:
+                    print(f"  {i}. {player}")
         
         if teams:
             print(f"\n🏈 Teams:")
             for i, team in enumerate(teams, 1):
-                print(f"  {i}. {team}")
+                if isinstance(team, dict) and 'name' in team:
+                    print(f"  {i}. {team['name']} (confidence: {team.get('confidence', 'N/A')})")
+                else:
+                    print(f"  {i}. {team}")
+        
+        if not players and not teams:
+            print("❌ No entities extracted by LLM")
         
         if not players and not teams:
             print("❌ No entities extracted by LLM")
@@ -81,21 +90,36 @@ def test_llm_extraction(text: str) -> None:
         validated_players = 0
         validated_teams = 0
         
+        # Extract names from structured entities
+        player_names = []
         for player in players:
-            if player in entity_dict or player.lower() in [k.lower() for k in entity_dict.keys()]:
+            if isinstance(player, dict) and 'name' in player:
+                player_names.append(player['name'])
+            elif isinstance(player, str):
+                player_names.append(player)
+        
+        team_names = []
+        for team in teams:
+            if isinstance(team, dict) and 'name' in team:
+                team_names.append(team['name'])
+            elif isinstance(team, str):
+                team_names.append(team)
+        
+        for player_name in player_names:
+            if player_name in entity_dict or player_name.lower() in [k.lower() for k in entity_dict.keys()]:
                 validated_players += 1
         
-        for team in teams:
-            if team in entity_dict or team.lower() in [k.lower() for k in entity_dict.keys()]:
+        for team_name in team_names:
+            if team_name in entity_dict or team_name.lower() in [k.lower() for k in entity_dict.keys()]:
                 validated_teams += 1
         
-        total_extracted = len(players) + len(teams)
+        total_extracted = len(player_names) + len(team_names)
         total_validated = validated_players + validated_teams
         validation_rate = (total_validated / total_extracted * 100) if total_extracted > 0 else 0
         
         print(f"📊 Validation results:")
-        print(f"   Players validated: {validated_players}/{len(players)}")
-        print(f"   Teams validated: {validated_teams}/{len(teams)}")
+        print(f"   Players validated: {validated_players}/{len(player_names)}")
+        print(f"   Teams validated: {validated_teams}/{len(team_names)}")
         print(f"   Overall validation rate: {validation_rate:.1f}%")
         
     except Exception as e:
@@ -146,6 +170,120 @@ def run_llm_entity_linking(batch_size: int, max_batches: int = None) -> None:
             print(f"   Entity validation rate: {validation_rate:.1f}%")
     else:
         print(f"\\n❌ LLM entity linking failed: {result['error']}")
+
+
+def debug_unlinked_articles(batch_size: int = 10) -> None:
+    """Debug function to check article counts and unlinked article detection."""
+    print(f"\n🔍 Debugging unlinked articles detection with batch size {batch_size}")
+    print("-" * 80)
+    
+    try:
+        # Initialize database managers
+        from src.core.utils.database import DatabaseManager
+        articles_db = DatabaseManager("SourceArticles")
+        links_db = DatabaseManager("article_entity_links")
+        
+        # Check total articles
+        print("📊 Database Statistics:")
+        
+        # Total articles
+        result = articles_db.supabase.table('SourceArticles').select('id', count='exact').execute()
+        total_articles = result.count if hasattr(result, 'count') else len(result.data) if result.data else 0
+        print(f"   Total SourceArticles: {total_articles}")
+        
+        # Articles with valid content types
+        result = articles_db.supabase.table('SourceArticles').select('id', count='exact').in_(
+            'contentType', ['news_article', 'news-round-up', 'topic_collection']
+        ).execute()
+        valid_content_type_articles = result.count if hasattr(result, 'count') else len(result.data) if result.data else 0
+        print(f"   Articles with valid contentType: {valid_content_type_articles}")
+        
+        # Articles with content AND valid content type
+        result = articles_db.supabase.table('SourceArticles').select('id', count='exact').neq('Content', '').in_(
+            'contentType', ['news_article', 'news-round-up', 'topic_collection']
+        ).execute()
+        articles_with_content = result.count if hasattr(result, 'count') else len(result.data) if result.data else 0
+        print(f"   Articles with Content + valid contentType: {articles_with_content}")
+        
+        # Show breakdown by content type
+        for content_type in ['news_article', 'news-round-up', 'topic_collection']:
+            result = articles_db.supabase.table('SourceArticles').select('id', count='exact').eq('contentType', content_type).execute()
+            type_count = result.count if hasattr(result, 'count') else len(result.data) if result.data else 0
+            print(f"   Articles with contentType='{content_type}': {type_count}")
+        
+        # Articles with null content
+        result = articles_db.supabase.table('SourceArticles').select('id', count='exact').is_('Content', 'null').execute()
+        articles_null_content = result.count if hasattr(result, 'count') else len(result.data) if result.data else 0
+        print(f"   Articles with NULL Content: {articles_null_content}")
+        
+        # Articles with empty string content
+        result = articles_db.supabase.table('SourceArticles').select('id', count='exact').eq('Content', '').execute()
+        articles_empty_content = result.count if hasattr(result, 'count') else len(result.data) if result.data else 0
+        print(f"   Articles with empty Content: {articles_empty_content}")
+        
+        # Total entity links
+        result = links_db.supabase.table('article_entity_links').select('article_id', count='exact').execute()
+        total_links = result.count if hasattr(result, 'count') else len(result.data) if result.data else 0
+        print(f"   Total entity links: {total_links}")
+        
+        # Unique linked articles
+        result = links_db.supabase.table('article_entity_links').select('article_id').execute()
+        unique_linked_articles = len(set([link['article_id'] for link in result.data])) if result.data else 0
+        print(f"   Unique linked articles: {unique_linked_articles}")
+        
+        # Calculate unlinked articles estimate
+        estimated_unlinked = articles_with_content - unique_linked_articles
+        print(f"   Estimated unlinked articles: {estimated_unlinked}")
+        
+        print(f"\n🔬 Testing unlinked article detection methods:")
+        
+        # Test the LLMEntityLinker's get_unlinked_articles method
+        linker = LLMEntityLinker(batch_size=batch_size)
+        unlinked_articles = linker.get_unlinked_articles(batch_size)
+        
+        print(f"   LLMEntityLinker.get_unlinked_articles() returned: {len(unlinked_articles)} articles")
+        
+        if unlinked_articles:
+            print(f"   Sample article IDs: {[article['id'] for article in unlinked_articles[:5]]}")
+            
+            # Check if these articles actually have content
+            print(f"\n📝 Content check for first few articles:")
+            for i, article in enumerate(unlinked_articles[:3]):
+                content_length = len(article.get('Content', '')) if article.get('Content') else 0
+                print(f"   Article {article['id']}: Content length = {content_length}")
+                if content_length > 0:
+                    preview = article['Content'][:100] + "..." if len(article['Content']) > 100 else article['Content']
+                    print(f"     Preview: {preview}")
+                    
+                    # Check if this article actually has links
+                    links_result = links_db.supabase.table('article_entity_links').select('*').eq('article_id', article['id']).execute()
+                    link_count = len(links_result.data) if links_result.data else 0
+                    print(f"     Existing links: {link_count}")
+        else:
+            print("   No unlinked articles found!")
+            print("\n🔧 Let's try manual detection:")
+            
+            # Manual check: get some articles with content
+            result = articles_db.supabase.table('SourceArticles').select('id, Content, contentType').neq('Content', '').in_(
+                'contentType', ['news_article', 'news-round-up', 'topic_collection']
+            ).limit(10).execute()
+            if result.data:
+                print(f"   Found {len(result.data)} articles with content")
+                for article in result.data[:3]:
+                    # Check if this article has links
+                    links_result = links_db.supabase.table('article_entity_links').select('*').eq('article_id', article['id']).execute()
+                    link_count = len(links_result.data) if links_result.data else 0
+                    content_length = len(article.get('Content', '')) if article.get('Content') else 0
+                    content_type = article.get('contentType', 'unknown')
+                    print(f"     Article {article['id']}: ContentType={content_type}, Content={content_length} chars, Links={link_count}")
+                    
+                    if link_count == 0 and content_length > 0:
+                        print(f"       ✅ This article should be processable!")
+            
+    except Exception as e:
+        print(f"❌ Error during debugging: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def show_llm_stats() -> None:
@@ -266,6 +404,11 @@ def main():
     # Stats command
     stats_parser = subparsers.add_parser('stats', help='Show LLM entity linking statistics')
     
+    # Debug command
+    debug_parser = subparsers.add_parser('debug', help='Debug unlinked articles detection')
+    debug_parser.add_argument('--batch-size', type=int, default=10,
+                             help='Batch size to test (default: 10)')
+    
     # Parse arguments
     args = parser.parse_args()
     
@@ -286,6 +429,9 @@ def main():
         
         elif args.command == 'stats':
             show_llm_stats()
+        
+        elif args.command == 'debug':
+            debug_unlinked_articles(args.batch_size)
         
     except KeyboardInterrupt:
         print("\\n\\n⚠️  Operation cancelled by user")

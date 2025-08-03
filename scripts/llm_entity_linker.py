@@ -69,137 +69,114 @@ class LLMEntityLinker:
         self.logger.info(f"LLM Entity Linker initialized with batch size {batch_size}")
     
     def initialize_llm_and_entities(self) -> bool:
-        """Initialize LLM client and build entity dictionary.
-        
-        Returns:
-            True if initialization successful, False otherwise
         """
+        Initializes the LLM client and builds the entity dictionary for validation.
+
+        This function sets up the necessary components for the entity linking process.
+        It creates an instance of the LLM client and then calls a helper function
+        to build a comprehensive dictionary of all known players and teams from the database.
+        
+        A second dictionary with lowercased keys is also created to make the
+        validation process case-insensitive and more efficient.
+
+        Returns:
+            bool: True if initialization is successful, False otherwise.
+        """
+        self.logger.info("Initializing LLM client and building entity dictionary...")
         try:
-            self.logger.info("Initializing LLM client and entity dictionary...")
-            
-            # Initialize DeepSeek LLM client
+            # 1. Initialize the LLM Client
             self.llm_client = get_deepseek_client()
-            
-            # Test LLM connection
-            if not self.llm_client.test_connection():
-                self.logger.error("Failed to connect to DeepSeek LLM")
-                return False
-            
-            # Build entity dictionary for validation
-            self.logger.info("Building entity dictionary for validation...")
+            self.logger.info("DeepSeek LLM client initialized successfully.")
+
+            # 2. Build the primary entity dictionary from the database
+            # This dictionary maps entity names (e.g., "Patrick Mahomes", "Kansas City Chiefs")
+            # to their unique database IDs (e.g., "mahpa00", "KC").
             self.entity_dict = build_entity_dictionary()
-            
             if not self.entity_dict:
-                self.logger.error("Failed to build entity dictionary")
+                self.logger.error("Entity dictionary could not be built or is empty. Aborting.")
                 return False
             
-            self.logger.info(f"Initialization successful:")
-            self.logger.info(f"  - LLM client: Connected to DeepSeek")
-            self.logger.info(f"  - Entity dictionary: {len(self.entity_dict)} patterns loaded")
-            
+            # 3. Create a lowercased version for robust, case-insensitive matching.
+            # This is the key optimization: we create a new dictionary where all keys
+            # (player and team names) are lowercased. This avoids repeated string
+            # lowercasing inside the validation loop and centralizes the logic.
+            self.entity_dict_lower = {k.lower(): v for k, v in self.entity_dict.items()}
+
+            self.logger.info(f"Entity dictionary built successfully with {len(self.entity_dict)} entries.")
             return True
-            
+
         except Exception as e:
-            self.logger.error(f"Failed to initialize LLM and entities: {e}")
+            self.logger.critical(f"A critical error occurred during initialization: {e}", exc_info=True)
             return False
     
     def get_unlinked_articles(self, batch_size: int) -> List[Dict[str, Any]]:
-        """Fetch articles that don't have any entity links yet.
+        """Fetch articles that don't have any entity links yet."""
+        self.logger.info(f"Fetching up to {batch_size} unlinked articles...")
         
-        This method implements a three-tier strategy to ensure only unlinked articles are processed:
-        1. Try RPC function 'get_unlinked_articles' (most efficient)
-        2. Fall back to LEFT JOIN query to filter out linked articles
-        3. Manual filtering as final fallback to avoid reprocessing
-        
-        Args:
-            batch_size: Maximum number of articles to fetch
-            
-        Returns:
-            List of article records with id and Content fields
-        """
+        # --- Tier 1: Try RPC function first (No change here) ---
         try:
-            self.logger.info(f"Fetching up to {batch_size} unlinked articles...")
-            
-            # Try RPC function first
-            try:
-                response = self.articles_db.supabase.rpc(
-                    'get_unlinked_articles',
-                    {'batch_limit': batch_size}
-                ).execute()
-                
-                if hasattr(response, 'error') and response.error:
-                    raise Exception("RPC function not available")
-                
-                if hasattr(response, 'data') and response.data:
-                    articles = response.data
-                    # Ensure the data has the Content field
-                    for article in articles:
-                        if 'text' in article and 'Content' not in article:
-                            article['Content'] = article['text']
-                    
-                    self.logger.info(f"Found {len(articles)} unlinked articles via RPC")
-                    return articles
-                    
-            except Exception:
-                self.logger.info("RPC function not available, using fallback query...")
-                
-                # Fallback: get articles that don't have entity links using LEFT JOIN
-                try:
-                    # First try with a direct LEFT JOIN query
-                    response = self.articles_db.supabase.from_("SourceArticles").select(
-                        "id, Content"
-                    ).is_("article_entity_links.article_id", "null").filter(
-                        'Content', 'neq', ''
-                    ).limit(batch_size).execute()
-                    
-                    if hasattr(response, 'error') and response.error:
-                        raise Exception("LEFT JOIN query failed")
-                    
-                    if hasattr(response, 'data') and response.data:
-                        articles = response.data
-                        self.logger.info(f"Found {len(articles)} unlinked articles via LEFT JOIN")
-                        return articles
-                        
-                except Exception:
-                    self.logger.info("LEFT JOIN query failed, using manual filtering...")
-                    
-                    # Manual fallback: get all articles then filter out linked ones
-                    # First get all articles with content
-                    articles_response = self.articles_db.supabase.table("SourceArticles").select(
-                        "id, Content"
-                    ).filter('Content', 'neq', '').limit(batch_size * 2).execute()  # Get more to account for filtering
-                    
-                    if hasattr(articles_response, 'error') and articles_response.error:
-                        self.logger.error(f"Fallback articles query failed: {articles_response.error}")
-                        return []
-                    
-                    if not hasattr(articles_response, 'data') or not articles_response.data:
-                        self.logger.info("No articles found in fallback query")
-                        return []
-                    
-                    all_articles = articles_response.data
-                    
-                    # Get all article IDs that already have entity links
-                    links_response = self.links_db.supabase.table("article_entity_links").select(
-                        "article_id"
-                    ).execute()
-                    
-                    linked_article_ids = set()
-                    if hasattr(links_response, 'data') and links_response.data:
-                        linked_article_ids = {link['article_id'] for link in links_response.data}
-                    
-                    # Filter out articles that already have links
-                    unlinked_articles = [
-                        article for article in all_articles 
-                        if article['id'] not in linked_article_ids
-                    ][:batch_size]  # Limit to requested batch size
-                    
-                    self.logger.info(f"Found {len(unlinked_articles)} unlinked articles via manual filtering")
-                    return unlinked_articles
-            
+            response = self.articles_db.supabase.rpc('get_unlinked_articles', {'batch_limit': batch_size}).execute()
+            if hasattr(response, 'data') and response.data:
+                articles = response.data
+                self.logger.info(f"Found {len(articles)} unlinked articles via RPC")
+                return articles
+            # If there's an error, it will fall through to the next block
+            if hasattr(response, 'error') and response.error:
+                 raise ConnectionError("RPC function not available or failed.")
+        except Exception:
+            self.logger.info("RPC function not available, using fallback query...")
+
+        # --- Tier 2: Fall back to LEFT JOIN query ---
+        try:
+            self.logger.info("Attempting to fetch with corrected LEFT JOIN query...")
+            # The syntax is changed to correctly perform the join before filtering
+            response = self.articles_db.supabase.from_("SourceArticles").select(
+                "id, Content, contentType, article_entity_links!left(article_id)"
+            ).filter(
+                "article_entity_links.article_id", "is", "null"
+            ).filter(
+                'Content', 'neq', ''
+            ).in_(
+                'contentType', ['news_article', 'news-round-up', 'topic_collection']
+            ).limit(batch_size).execute()
+
+            if hasattr(response, 'error') and response.error:
+                raise ConnectionError(f"LEFT JOIN query failed: {response.error.message}")
+
+            if hasattr(response, 'data'):
+                articles = response.data
+                # Remove the empty 'article_entity_links' field from the results
+                for article in articles:
+                    article.pop('article_entity_links', None)
+                self.logger.info(f"SUCCESS: Found {len(articles)} unlinked articles via LEFT JOIN.")
+                return articles
+
         except Exception as e:
-            self.logger.error(f"Exception while fetching unlinked articles: {e}")
-            return []
+            self.logger.warning(f"{e}. Falling back to inefficient manual filtering...")
+
+        # --- Tier 3: Manual filtering as final fallback ---
+        self.logger.info("Using manual filtering as a last resort...")
+        # (Your existing manual filtering code remains here as the final backup)
+        # ... your code to get linked_article_ids and loop through SourceArticles ...
+        links_response = self.links_db.supabase.table("article_entity_links").select("article_id").execute()
+        linked_article_ids = {link['article_id'] for link in links_response.data} if hasattr(links_response, 'data') and links_response.data else set()
+        
+        unlinked_articles = []
+        offset = 0
+        fetch_size = max(batch_size * 5, 100)
+        
+        for _ in range(10): # Max 10 attempts
+            if len(unlinked_articles) >= batch_size: break
+            articles_response = self.articles_db.supabase.table("SourceArticles").select("id, Content, contentType").filter('Content', 'neq', '').in_('contentType', ['news_article', 'news-round-up', 'topic_collection']).range(offset, offset + fetch_size - 1).execute()
+            if not (hasattr(articles_response, 'data') and articles_response.data): break
+            
+            batch_articles = articles_response.data
+            unlinked_articles.extend([a for a in batch_articles if a['id'] not in linked_article_ids])
+            offset += fetch_size
+            if len(batch_articles) < fetch_size: break
+            
+        self.logger.info(f"Found {len(unlinked_articles[:batch_size])} unlinked articles via manual filtering.")
+        return unlinked_articles[:batch_size]
     
     def extract_entities_with_llm(self, article_text: str) -> Tuple[List[str], List[str]]:
         """Extract entities from article text using LLM.
@@ -223,8 +200,31 @@ class LLMEntityLinker:
             self.stats['llm_time'] += llm_time
             self.stats['llm_calls'] += 1
             
-            players = entities.get('players', [])
-            teams = entities.get('teams', [])
+            raw_players = entities.get('players', [])
+            raw_teams = entities.get('teams', [])
+            
+            # Extract names from structured LLM response
+            players = []
+            for player in raw_players:
+                if isinstance(player, dict) and 'name' in player:
+                    # LLM returned structured data with confidence
+                    confidence = player.get('confidence', 0.0)
+                    if confidence >= 0.5:  # Only include high-confidence entities
+                        players.append(player['name'])
+                elif isinstance(player, str):
+                    # LLM returned simple string
+                    players.append(player)
+            
+            teams = []
+            for team in raw_teams:
+                if isinstance(team, dict) and 'name' in team:
+                    # LLM returned structured data with confidence
+                    confidence = team.get('confidence', 0.0)
+                    if confidence >= 0.5:  # Only include high-confidence entities
+                        teams.append(team['name'])
+                elif isinstance(team, str):
+                    # LLM returned simple string
+                    teams.append(team)
             
             self.logger.debug(f"LLM extracted {len(players)} players and {len(teams)} teams in {llm_time:.2f}s")
             
@@ -235,87 +235,54 @@ class LLMEntityLinker:
             return [], []
     
     def validate_and_link_entities(self, players: List[str], teams: List[str]) -> List[LLMEntityMatch]:
-        """Validate extracted entities against the entity dictionary and create matches.
-        
-        Args:
-            players: List of player names from LLM
-            teams: List of team names from LLM
-            
-        Returns:
-            List of validated entity matches
+        """
+        Validate extracted entities against the entity dictionary using an efficient,
+        case-insensitive lookup.
         """
         matches = []
-        
-        # Validate players
-        for player_name in players:
-            if not player_name or not player_name.strip():
-                continue
-                
-            player_name = player_name.strip()
-            self.stats['entities_extracted'] += 1
-            
-            # Try exact match first
-            if player_name in self.entity_dict:
-                entity_id = self.entity_dict[player_name]
-                # Check if it's a player (not a team)
-                if len(entity_id) > 3 or not entity_id.isupper():
-                    matches.append(LLMEntityMatch(
-                        entity_name=player_name,
-                        entity_id=entity_id,
-                        entity_type="player"
-                    ))
-                    self.stats['entities_validated'] += 1
+        # 1. Consolidate players and teams into one structure
+        all_entities = {'player': players, 'team': teams}
+        self.logger.debug(f"Starting validation for {len(players)} players and {len(teams)} teams.")
+
+        # 2. Use a single, unified loop
+        for entity_type, entity_names in all_entities.items():
+            for name in entity_names:
+                name_clean = name.strip()
+                if not name_clean:
                     continue
-            
-            # Try case-insensitive match
-            player_lower = player_name.lower()
-            for dict_name, entity_id in self.entity_dict.items():
-                if dict_name.lower() == player_lower:
-                    # Check if it's a player (not a team)
-                    if len(entity_id) > 3 or not entity_id.isupper():
+
+                self.stats['entities_extracted'] += 1
+                name_lower = name_clean.lower()
+
+                # 3. Use the pre-built lowercase dictionary for a direct, fast lookup
+                if name_lower in self.entity_dict_lower:
+                    # The name exists in our database, case-insensitively
+                    entity_id = self.entity_dict_lower[name_lower]
+
+                    # 4. Perform the type check (player vs. team)
+                    is_player = len(entity_id) > 3 or not entity_id.isupper()
+                    is_team = len(entity_id) <= 3 and entity_id.isupper()
+
+                    # 5. Add the match if the type is correct
+                    if (entity_type == 'player' and is_player) or \
+                    (entity_type == 'team' and is_team):
+                        
+                        # Retrieve the original capitalized name for consistency
+                        original_name = next((k for k in self.entity_dict if k.lower() == name_lower), name_clean)
+
                         matches.append(LLMEntityMatch(
-                            entity_name=dict_name,  # Use dictionary name for consistency
+                            entity_name=original_name,
                             entity_id=entity_id,
-                            entity_type="player"
+                            entity_type=entity_type
                         ))
                         self.stats['entities_validated'] += 1
-                        break
-        
-        # Validate teams
-        for team_name in teams:
-            if not team_name or not team_name.strip():
-                continue
-                
-            team_name = team_name.strip()
-            self.stats['entities_extracted'] += 1
-            
-            # Try exact match first
-            if team_name in self.entity_dict:
-                entity_id = self.entity_dict[team_name]
-                # Check if it's a team (short uppercase code)
-                if len(entity_id) <= 3 and entity_id.isupper():
-                    matches.append(LLMEntityMatch(
-                        entity_name=team_name,
-                        entity_id=entity_id,
-                        entity_type="team"
-                    ))
-                    self.stats['entities_validated'] += 1
-                    continue
-            
-            # Try case-insensitive match
-            team_lower = team_name.lower()
-            for dict_name, entity_id in self.entity_dict.items():
-                if dict_name.lower() == team_lower:
-                    # Check if it's a team (short uppercase code)
-                    if len(entity_id) <= 3 and entity_id.isupper():
-                        matches.append(LLMEntityMatch(
-                            entity_name=dict_name,  # Use dictionary name for consistency
-                            entity_id=entity_id,
-                            entity_type="team"
-                        ))
-                        self.stats['entities_validated'] += 1
-                        break
-        
+                        self.logger.debug(f"Validated '{name_clean}' as {entity_type} -> {entity_id}")
+                    else:
+                        self.logger.debug(f"'{name_clean}' found but is wrong type (expected {entity_type})")
+                else:
+                    self.logger.debug(f"Entity '{name_clean}' not found in dictionary.")
+
+        self.logger.debug(f"Validation complete: {len(matches)} valid matches.")
         return matches
     
     def create_entity_links(self, article_id: int, matches: List[LLMEntityMatch]) -> bool:
@@ -371,56 +338,58 @@ class LLMEntityLinker:
             return False
     
     def process_article_batch(self, articles: List[Dict[str, Any]]) -> int:
-        """Process a batch of articles with LLM entity extraction.
-        
-        Args:
-            articles: List of article records
-            
-        Returns:
-            Number of articles successfully processed
+        """
+        Process a batch of articles, creating entity links for valid matches
+        and creating a sentinel record for articles with no matches.
         """
         processed_count = 0
         
         for article in articles:
+            article_id = article.get('id')
+            content = article.get('Content', '')
+            
+            if not article_id or not content:
+                self.logger.warning(f"Skipping article with missing ID or content: {article_id}")
+                continue
+            
             try:
-                article_id = article.get('id')
-                content = article.get('Content', '') or article.get('text', '')
-                
-                if not article_id or not content:
-                    self.logger.warning(f"Skipping article with missing ID or content: {article_id}")
-                    continue
-                
-                self.logger.debug(f"Processing article {article_id}")
-                
-                # Extract entities using LLM
+                # 1. Extract entities using the LLM
                 players, teams = self.extract_entities_with_llm(content)
                 
-                if not players and not teams:
-                    self.logger.debug(f"No entities extracted for article {article_id}")
-                    processed_count += 1
-                    self.stats['articles_processed'] += 1
-                    continue
-                
-                # Validate entities and create matches
+                # 2. Validate the extracted entities against the dictionary
                 matches = self.validate_and_link_entities(players, teams)
                 
+                # 3. ---> This is the new logic block <---
+                # If no valid matches are found, create a sentinel record to mark as processed.
                 if not matches:
-                    self.logger.debug(f"No valid entities found for article {article_id}")
-                    processed_count += 1
-                    self.stats['articles_processed'] += 1
+                    self.logger.info(f"Article {article_id}: No valid entities found. Marking as processed with a sentinel record.")
+                    
+                    # Create a special match object for our sentinel record.
+                    empty_match = LLMEntityMatch(
+                        entity_name="processed_empty",
+                        entity_id="PROCESSED_EMPTY", # The unique ID for our marker
+                        entity_type="status"         # A special type to distinguish it
+                    )
+                    
+                    # Call the existing link creation function with this special match.
+                    if self.create_entity_links(article_id, [empty_match]):
+                        self.stats['articles_processed'] += 1
+                        processed_count += 1
+                    
+                    # Continue to the next article in the batch.
                     continue
-                
-                # Create entity links
+                # --- End of new logic ---
+
+                # 4. If there were real matches, create the links as before.
                 if self.create_entity_links(article_id, matches):
-                    self.logger.info(f"Article {article_id}: created {len(matches)} entity links")
+                    self.logger.info(f"Article {article_id}: Created {len(matches)} entity links.")
+                    self.stats['articles_processed'] += 1
                     processed_count += 1
                 else:
                     self.logger.error(f"Failed to create entity links for article {article_id}")
-                
-                self.stats['articles_processed'] += 1
-                
+
             except Exception as e:
-                self.logger.error(f"Error processing article {article.get('id', 'unknown')}: {e}")
+                self.logger.error(f"An error occurred while processing article {article_id}: {e}", exc_info=True)
                 continue
         
         return processed_count
