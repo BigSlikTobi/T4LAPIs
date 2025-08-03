@@ -69,7 +69,6 @@ class TestLLMEntityLinker(unittest.TestCase):
         """Test successful initialization of LLM and entity dictionary."""
         # Set up mocks
         mock_llm_client = Mock()
-        mock_llm_client.test_connection.return_value = True
         mock_get_deepseek_client.return_value = mock_llm_client
         mock_build_entity_dict.return_value = self.mock_entity_dict
         
@@ -82,7 +81,6 @@ class TestLLMEntityLinker(unittest.TestCase):
         
         # Verify calls
         mock_get_deepseek_client.assert_called_once()
-        mock_llm_client.test_connection.assert_called_once()
         mock_build_entity_dict.assert_called_once()
     
     @patch('scripts.llm_entity_linker.DatabaseManager')
@@ -90,19 +88,17 @@ class TestLLMEntityLinker(unittest.TestCase):
     @patch('scripts.llm_entity_linker.get_deepseek_client')
     @patch('scripts.llm_entity_linker.build_entity_dictionary')
     def test_initialize_llm_and_entities_llm_failure(self, mock_build_entity_dict, mock_get_deepseek_client, mock_get_logger, mock_db_manager):
-        """Test initialization failure when LLM connection fails."""
-        # Set up mocks
+        """Test initialization failure when entity dictionary building fails."""
+        # Set up mocks - entity dict building fails
         mock_llm_client = Mock()
-        mock_llm_client.test_connection.return_value = False
         mock_get_deepseek_client.return_value = mock_llm_client
+        mock_build_entity_dict.return_value = {}  # Empty dict indicates failure
         
         linker = LLMEntityLinker()
         result = linker.initialize_llm_and_entities()
         
         self.assertFalse(result)
-        mock_llm_client.test_connection.assert_called_once()
-        # Should not call build_entity_dictionary if LLM fails
-        mock_build_entity_dict.assert_not_called()
+        mock_build_entity_dict.assert_called_once()
     
     @patch('scripts.llm_entity_linker.DatabaseManager')
     @patch('scripts.llm_entity_linker.get_logger')
@@ -130,6 +126,7 @@ class TestLLMEntityLinker(unittest.TestCase):
         """Test entity validation and linking method."""
         linker = LLMEntityLinker()
         linker.entity_dict = self.mock_entity_dict
+        linker.entity_dict_lower = {k.lower(): v for k, v in self.mock_entity_dict.items()}
         
         players = ['Patrick Mahomes', 'Unknown Player']
         teams = ['Kansas City Chiefs', 'Unknown Team']
@@ -159,6 +156,7 @@ class TestLLMEntityLinker(unittest.TestCase):
         """Test entity validation with empty dictionary."""
         linker = LLMEntityLinker()
         linker.entity_dict = {}
+        linker.entity_dict_lower = {}
         
         players = ['Patrick Mahomes']
         teams = ['Kansas City Chiefs']
@@ -283,7 +281,6 @@ class TestLLMEntityLinkerIntegration(unittest.TestCase):
         mock_build_entity_dict.return_value = entity_dict
         
         mock_llm_client = Mock()
-        mock_llm_client.test_connection.return_value = True
         mock_llm_client.extract_entities.return_value = {
             'players': ['Patrick Mahomes'],
             'teams': ['Kansas City Chiefs']
@@ -316,7 +313,6 @@ class TestLLMEntityLinkerIntegration(unittest.TestCase):
         
         # Verify all components were called correctly
         mock_get_deepseek_client.assert_called_once()
-        mock_llm_client.test_connection.assert_called_once()
         mock_build_entity_dict.assert_called_once()
         mock_llm_client.extract_entities.assert_called_once_with("Test article content")
         mock_links_db.insert_records.assert_called_once()

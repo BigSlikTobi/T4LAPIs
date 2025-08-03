@@ -88,6 +88,8 @@ python scripts/llm_entity_linker_cli.py test --text "Patrick Mahomes threw for 3
 python scripts/llm_entity_linker_cli.py run --batch-size 20 --max-batches 5
 ```
 
+**⚠️ LLM Entity Linking Setup**: For optimal performance, manually create the `get_unlinked_articles` SQL function in Supabase (see [Manual Database Setup](#🔧-manual-database-setup-for-llm-entity-linking)).
+
 ## 🚀 FastAPI REST API
 
 The project includes a complete FastAPI-based REST API for managing users and their NFL team/player preferences.
@@ -196,6 +198,9 @@ Located in the `scripts/` directory, these tools provide command-line interfaces
 - **player_weekly_stats_cli.py**: Weekly statistics management
 - **llm_entity_linker_cli.py**: LLM-enhanced entity linking and extraction
 - **entity_dictionary_cli.py**: Entity dictionary management and utilities
+- **setup_entity_linking_db.py**: Database index creation (manual SQL function setup required)
+
+**Note**: For optimal LLM entity linking performance, ensure the manual SQL function setup is completed (see [Manual Database Setup](#🔧-manual-database-setup-for-llm-entity-linking)).
 
 For detailed CLI documentation, see: [🛠️ CLI Tools Guide](docs/CLI_Tools_Guide.md)
 
@@ -236,6 +241,37 @@ SUPABASE_KEY=your_supabase_anon_key
 DEEPSEEK_API_KEY=your_deepseek_api_key  # For LLM entity linking
 LOG_LEVEL=INFO  # Optional: DEBUG, INFO, WARNING, ERROR
 ```
+
+### 🔧 Manual Database Setup for LLM Entity Linking
+
+**Important**: Due to Supabase limitations, the following SQL function must be created manually in the Supabase SQL Editor for optimal LLM entity linking performance:
+
+1. Open your Supabase project dashboard
+2. Navigate to **SQL Editor**
+3. Run the following SQL command:
+
+```sql
+CREATE OR REPLACE FUNCTION get_unlinked_articles(batch_limit INTEGER)
+RETURNS SETOF "SourceArticles" AS $$
+BEGIN
+    RETURN QUERY
+    SELECT sa.*
+    FROM "SourceArticles" sa
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM "article_entity_links" ael
+        WHERE ael.article_id = sa.id
+    )
+    AND sa."contentType" IN ('news_article', 'news-round-up', 'topic_collection')
+    AND sa."Content" IS NOT NULL
+    AND sa."Content" != ''
+    ORDER BY sa.id
+    LIMIT batch_limit;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+**Note**: Without this function, the system will automatically fall back to less efficient query methods, but functionality will remain intact.
 
 ## 🧪 Testing
 

@@ -123,20 +123,20 @@ class DeepSeekLLM:
             article_text = article_text[:max_article_length] + "..."
             self.logger.debug("Article text truncated for LLM processing")
         
-        prompt = f"""From the following NFL news article, extract the full names of all mentioned players and the full names of all mentioned teams. If a name is ambiguous, provide the full name as it would be recognized in the NFL context. 
+        prompt = f"""
+        From the following NFL news article, extract all mentioned NFL players and teams.
 
-IMPORTANT RULES:
-1. Only include NFL players and NFL teams
-2. Use full names when possible (e.g., "Patrick Mahomes" not just "Mahomes")
-3. For teams, use full team names (e.g., "Kansas City Chiefs" not just "Chiefs")
-4. Do not include coaches, commentators, or non-NFL entities
-5. Do not include duplicate names
-6. Respond with ONLY valid JSON in this exact format
+        IMPORTANT RULES:
+        1.  **Players**: Extract the most complete name available. If only a last name is used (e.g., "Worthy"), extract the last name. If a full name is used, extract the full name.
+        2.  **Teams**: Always extract the full team name (e.g., "Kansas City Chiefs", not "Chiefs").
+        3.  **Accuracy**: Do not include non-NFL personnel like coaches or commentators.
+        4.  **Format**: Respond with ONLY a valid JSON object containing two lists: "players" and "teams". Do not add duplicates.
 
-Article:
-'''{article_text}'''
+        Article:
+        '''{article_text}'''
 
-JSON Output:"""
+        JSON Output:
+        """
         
         return prompt
     
@@ -198,9 +198,36 @@ JSON Output:"""
                 self.logger.error("LLM response 'players' and 'teams' must be lists")
                 return None
             
-            # Clean and validate the lists
-            entities['players'] = [str(name).strip() for name in entities['players'] if name and str(name).strip()]
-            entities['teams'] = [str(name).strip() for name in entities['teams'] if name and str(name).strip()]
+            # Clean and validate the lists - preserve structure if dictionaries, convert to strings if simple values
+            cleaned_players = []
+            for player in entities['players']:
+                if player:
+                    if isinstance(player, dict):
+                        # Keep dictionary structure for structured responses
+                        cleaned_players.append(player)
+                    else:
+                        # Convert simple values to strings
+                        player_str = str(player).strip()
+                        if player_str:
+                            cleaned_players.append(player_str)
+            
+            cleaned_teams = []
+            for team in entities['teams']:
+                if team:
+                    if isinstance(team, dict):
+                        # Keep dictionary structure for structured responses
+                        cleaned_teams.append(team)
+                    else:
+                        # Convert simple values to strings
+                        team_str = str(team).strip()
+                        if team_str:
+                            cleaned_teams.append(team_str)
+            
+            entities['players'] = cleaned_players
+            entities['teams'] = cleaned_teams
+            
+            # Debug: log the final entities structure
+            self.logger.debug(f"Cleaned entities structure: players={entities['players']}, teams={entities['teams']}")
             
             return entities
             

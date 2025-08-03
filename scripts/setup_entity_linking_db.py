@@ -1,7 +1,10 @@
 """
 Database setup script for entity linking.
 
-This script creates the necessary SQL functions and indexes for efficient entity linking.
+This script creates the necessary indexes for efficient entity linking.
+
+IMPORTANT: Due to Supabase RPC limitations, the get_unlinked_articles function
+must be created manually in the Supabase SQL Editor. See README.md for details.
 """
 
 import logging
@@ -17,47 +20,19 @@ from src.core.utils.logging import get_logger
 
 
 def create_unlinked_articles_function():
-    """Create a SQL function to efficiently find unlinked articles."""
+    """Placeholder function - SQL function must be created manually in Supabase.
     
-    logger = get_logger(__name__)
-    db = DatabaseManager("SourceArticles")
+    Due to Supabase limitations with RPC function creation, the get_unlinked_articles
+    function must be created manually in the Supabase SQL Editor.
     
-    # SQL function to find articles without entity links
-    sql_function = """
-    CREATE OR REPLACE FUNCTION get_unlinked_articles(batch_limit INTEGER)
-    RETURNS TABLE(id INTEGER, text TEXT) AS $$
-    BEGIN
-        RETURN QUERY
-        SELECT sa.id, sa.text
-        FROM "SourceArticles" sa
-        LEFT JOIN "article_entity_links" ael ON sa.id = ael.article_id
-        WHERE ael.article_id IS NULL
-        ORDER BY sa.id
-        LIMIT batch_limit;
-    END;
-    $$ LANGUAGE plpgsql;
+    See README.md for the exact SQL command to run.
     """
     
-    try:
-        logger.info("Creating get_unlinked_articles SQL function...")
-        
-        # Execute the SQL function creation
-        response = db.supabase.rpc('exec_sql', {'sql': sql_function}).execute()
-        
-        if hasattr(response, 'error') and response.error:
-            logger.error(f"Failed to create SQL function: {response.error}")
-            
-            # Try alternative approach using raw SQL
-            logger.info("Trying alternative approach...")
-            # This might not work depending on Supabase permissions, but worth trying
-            
-        logger.info("SQL function created successfully")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Exception while creating SQL function: {e}")
-        logger.info("Entity linker will use fallback query method")
-        return False
+    logger = get_logger(__name__)
+    logger.warning("❌ SQL function creation not supported via this script")
+    logger.info("📝 Please create the get_unlinked_articles function manually in Supabase SQL Editor")
+    logger.info("📖 See README.md for the exact SQL command")
+    return False
 
 
 def create_indexes():
@@ -93,14 +68,23 @@ def setup_entity_linking_database():
     logger = get_logger(__name__)
     logger.info("Setting up database for entity linking...")
     
-    # Create SQL function
+    # Note about manual function creation
+    logger.info("⚠️  Manual setup required for optimal performance:")
+    logger.info("📝 Create get_unlinked_articles function in Supabase SQL Editor")
+    logger.info("📖 See README.md for the exact SQL command")
+    
+    # Create SQL function (will show warning about manual setup)
     function_created = create_unlinked_articles_function()
     
     # Create indexes
     indexes_created = create_indexes()
     
     logger.info("Database setup for entity linking completed")
-    return function_created and indexes_created
+    logger.info("✅ Indexes created successfully")
+    if not function_created:
+        logger.info("❌ SQL function requires manual creation in Supabase")
+    
+    return indexes_created  # Return True if indexes were created
 
 
 if __name__ == "__main__":
