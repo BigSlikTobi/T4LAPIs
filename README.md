@@ -11,10 +11,11 @@ T4LAPIs is designed to handle complete NFL data workflows, from fetching raw dat
 - **📊 Comprehensive NFL Data Coverage**: 24+ different NFL datasets including teams, players, games, statistics, injuries, and advanced analytics
 - **🔄 Automated Data Pipelines**: GitHub Actions workflows for scheduled data updates
 - **🤖 AI-Powered Content Generation**: Automated personalized summaries using Gemini 1.5 Flash + DeepSeek entity extraction
-- **🛠️ CLI Tools**: Command-line interfaces for manual data operations
+- **� Trending Summary Generator**: AI-powered comprehensive summaries for trending NFL entities with pipeline integration
+- **�🛠️ CLI Tools**: Command-line interfaces for manual data operations
 - **📈 Smart Update Logic**: Intelligent detection of data gaps and incremental updates
 - **🌐 Google Search Grounding**: Real-time NFL information retrieval for enhanced accuracy
-- **🧪 Full Test Coverage**: Comprehensive test suite ensuring reliability (34+ LLM tests included)
+- **🧪 Full Test Coverage**: Comprehensive test suite ensuring reliability (60+ tests including 34+ LLM tests)
 - **🐳 Docker Support**: Containerized deployment and execution
 - **🔧 Modular Architecture**: Separated concerns for fetching, transforming, and loading data
 - **🚀 FastAPI REST API**: Complete CRUD operations for user and preference management with 7 endpoints
@@ -30,13 +31,19 @@ T4LAPIs/
 │       ├── llm/               # AI integration (Gemini + DeepSeek)
 │       └── utils/             # Utility functions
 ├── content_generation/        # AI-powered content generation
-│   └── personal_summary_generator.py  # Gemini-powered personalized summaries
+│   ├── personal_summary_generator.py  # Gemini-powered personalized summaries
+│   └── trending_summary_generator.py  # AI summaries for trending entities
 ├── api/                       # FastAPI REST API
 │   ├── main.py               # Complete CRUD API with 7 endpoints
 │   ├── Dockerfile            # Container configuration
 │   ├── docker-compose.yml    # Development deployment
 │   └── test_endpoints.py     # API testing scripts
 ├── scripts/                   # CLI tools and automation scripts
+│   ├── trending_topic_detector.py      # Trending NFL entity detection
+│   ├── llm_entity_linker_cli.py        # LLM entity linking
+│   ├── teams_cli.py                    # Team data management
+│   ├── players_cli.py                  # Player data management
+│   └── ...                             # Other CLI tools
 ├── tests/                     # Test suite (50+ comprehensive tests)
 ├── docs/                      # Documentation (centralized)
 ├── .github/workflows/         # GitHub Actions automation
@@ -86,6 +93,15 @@ python scripts/games_cli.py 2024 --dry-run
 
 # Load weekly player statistics
 python scripts/player_weekly_stats_cli.py 2024 --week 1 --dry-run
+
+# Detect trending NFL entities
+python scripts/trending_topic_detector.py --hours 168 --top-n 5
+
+# Generate AI summaries for trending entities
+python content_generation/trending_summary_generator.py --entity-ids "KC,00-0033873" --dry-run
+
+# Pipeline trending detection → summary generation
+python scripts/trending_topic_detector.py --entity-ids-only | python content_generation/trending_summary_generator.py --from-stdin
 
 # Run LLM-enhanced entity linking
 python scripts/llm_entity_linker_cli.py test --text "Patrick Mahomes threw for 300 yards as the Chiefs beat the 49ers."
@@ -198,6 +214,8 @@ For detailed information about available datasets, see: [📋 NFL Data Reference
 
 Located in the `scripts/` directory, these tools provide command-line interfaces for:
 
+- **trending_topic_detector.py**: Trending NFL entity detection and analysis
+- **trending_summary_generator.py**: AI-powered comprehensive summaries for trending entities
 - **teams_cli.py**: Team data management
 - **players_cli.py**: Player roster management  
 - **games_cli.py**: Game schedule management
@@ -233,6 +251,93 @@ The system now includes automated generation of personalized NFL summaries power
 **Setup**: See [GitHub Actions Setup Guide](docs/GitHub_Actions_Setup.md) for configuration details.
 
 For workflow details, see: [⚙️ Automation Workflows](docs/Automation_Workflows.md)
+
+#### 🔥 Trending Summary Generator (NEW - Epic 2 Task 4)
+
+The system now includes a powerful trending summary generator that creates comprehensive summaries for trending NFL entities identified by the trending topic detector.
+
+**Features**:
+- **🎯 Trending Detection**: Integrates with trending topic detector via pipeline
+- **📰 Multi-Source Intelligence**: Combines recent articles and player statistics  
+- **🤖 Gemini-Powered**: Uses Gemini 2.5 Flash for engaging, journalistic content
+- **💾 Database Storage**: Saves to `trending_entity_updates` table
+- **🔄 Pipeline Integration**: Seamless stdin/stdout connectivity
+- **⚡ Flexible Input**: CLI args, files, or pipe from trending detector
+- **🧪 Dry Run Support**: Preview generation without database saves
+
+**Quick Start**:
+```bash
+# Generate summaries for specific entities
+python content_generation/trending_summary_generator.py --entity-ids "00-0033873,KC,NYJ"
+
+# Pipeline with trending detector (recommended)
+python scripts/trending_topic_detector.py --entity-ids-only | python content_generation/trending_summary_generator.py --from-stdin
+
+# Read from file
+python content_generation/trending_summary_generator.py --input-file trending_entities.txt
+
+# Preview mode (no database saves)
+python content_generation/trending_summary_generator.py --entity-ids "KC" --dry-run
+
+# Custom options
+python content_generation/trending_summary_generator.py --entity-ids "KC" --hours 48 --llm-provider deepseek
+```
+
+**Example Output**:
+```
+📊 Trending Summary Generation Results:
+   Entities processed: 3
+   Summaries generated: 2  
+   Articles analyzed: 186
+   Stats analyzed: 5
+   Errors encountered: 0
+   Processing time: 18.2s
+   LLM time: 14.7s
+   Success rate: 66.7%
+```
+
+**Database Schema** (`trending_entity_updates`):
+```json
+{
+    "id": "7ffdf99e-aa4d-4451-bb0c-47edcfbed795",
+    "created_at": "2025-08-03T16:14:09.401587+00:00",
+    "trending_content": "**Chiefs Dynasty Continues: Why Kansas City Remains NFL's Elite**\n\nThe Kansas City Chiefs are trending as they solidify their position as the NFL's premier franchise...",
+    "source_articles": [],
+    "source_starts": [],
+    "player_ids": [], 
+    "team_ids": ["KC"]
+}
+```
+
+**Testing**:
+```bash
+# Run comprehensive test suite (32 test cases)
+python -m pytest tests/test_trending_summary_generator.py -v
+```
+
+**Test Coverage**:
+- ✅ TrendingSummary dataclass functionality
+- ✅ Entity type determination and name retrieval
+- ✅ Article and statistics fetching from database
+- ✅ LLM integration with Gemini and DeepSeek fallback
+- ✅ Prompt generation for players and teams
+- ✅ Database storage with correct schema
+- ✅ CLI argument parsing and multiple input methods
+- ✅ Pipeline integration (stdin/stdout)
+- ✅ Error handling and edge cases
+- ✅ Dry run mode and configuration options
+
+**CLI Options**:
+- `--entity-ids`: Comma-separated entity IDs
+- `--input-file`: File containing entity IDs  
+- `--from-stdin`: Read from stdin (pipeline mode)
+- `--hours`: Lookback period (default: 72)
+- `--dry-run`: Preview mode without saves
+- `--llm-provider`: Choose 'gemini' or 'deepseek'
+- `--output-format`: 'summary' or 'json'
+- `--verbose`: Enable debug logging
+
+For detailed implementation, see `content_generation/trending_summary_generator.py` and the comprehensive test suite.
 
 ## 🐳 Docker Usage
 

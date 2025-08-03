@@ -69,6 +69,7 @@ class TestPersonalizedSummaryGenerator(unittest.TestCase):
                 'headline': 'Mahomes Throws for 350 Yards in Victory',
                 'Content': 'Patrick Mahomes led the Kansas City Chiefs to a 28-21 victory over the Denver Broncos...',
                 'Author': 'John Smith',
+                'created_at': datetime.now(timezone.utc).isoformat(),
                 'publishedAt': datetime.now(timezone.utc).isoformat(),
                 'source': 'ESPN'
             },
@@ -77,6 +78,7 @@ class TestPersonalizedSummaryGenerator(unittest.TestCase):
                 'headline': 'Chiefs Defense Steps Up',
                 'Content': 'The Kansas City Chiefs defense forced three turnovers in their latest game...',
                 'Author': 'Jane Doe',
+                'created_at': datetime.now(timezone.utc).isoformat(),
                 'publishedAt': datetime.now(timezone.utc).isoformat(),
                 'source': 'NFL.com'
             }
@@ -196,7 +198,7 @@ class TestPersonalizedSummaryGenerator(unittest.TestCase):
     
     def test_get_new_articles_for_entity_success(self):
         """Test successful retrieval of new articles for an entity."""
-        # Create a mock that properly handles the query chain  
+        # Create a mock that properly handles the new query chain with database-level filtering
         mock_query_result = type('MockQueryResult', (), {
             'data': [
                 {'article_id': 1001, 'SourceArticles': self.sample_articles[0]},
@@ -204,9 +206,20 @@ class TestPersonalizedSummaryGenerator(unittest.TestCase):
             ]
         })()
         
-        # Mock the query chain to return our result
+        # Mock the new query chain: .table().select().eq().eq().gte().execute()
         mock_chain = Mock()
-        mock_chain.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = mock_query_result
+        mock_execute = Mock(return_value=mock_query_result)
+        mock_gte = Mock()
+        mock_gte.execute = mock_execute
+        mock_eq2 = Mock()
+        mock_eq2.gte = Mock(return_value=mock_gte)
+        mock_eq1 = Mock()
+        mock_eq1.eq = Mock(return_value=mock_eq2)
+        mock_select = Mock()
+        mock_select.eq = Mock(return_value=mock_eq1)
+        mock_table = Mock()
+        mock_table.select = Mock(return_value=mock_select)
+        mock_chain.table = Mock(return_value=mock_table)
         
         # Replace the supabase client for this test
         original_client = self.generator.entity_links_db.supabase
@@ -217,6 +230,18 @@ class TestPersonalizedSummaryGenerator(unittest.TestCase):
             
             self.assertEqual(len(result), 2)
             self.assertEqual(result[0]['headline'], 'Mahomes Throws for 350 Yards in Victory')
+            self.assertEqual(result[1]['headline'], 'Chiefs Defense Steps Up')
+            
+            # Verify the query was called with the correct parameters
+            mock_chain.table.assert_called_with("article_entity_links")
+            mock_table.select.assert_called_with("article_id, SourceArticles!inner(id, headline, Content, Author, created_at, source)")
+            mock_select.eq.assert_called_with("entity_id", '00-0033873')
+            mock_eq1.eq.assert_called_with("entity_type", 'player')
+            # gte should be called with SourceArticles.created_at and a timestamp
+            mock_eq2.gte.assert_called()
+            gte_call_args = mock_eq2.gte.call_args
+            self.assertEqual(gte_call_args[0][0], "SourceArticles.created_at")
+            
         finally:
             # Restore original
             self.generator.entity_links_db.supabase = original_client
@@ -225,7 +250,7 @@ class TestPersonalizedSummaryGenerator(unittest.TestCase):
         """Test retrieval when no new articles exist."""
         mock_links_response = Mock()
         mock_links_response.data = []
-        self.mock_entity_links_db.supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = mock_links_response
+        self.mock_entity_links_db.supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.gte.return_value.execute.return_value = mock_links_response
         
         result = self.generator.get_new_articles_for_entity('00-0033873', 'player', 24)
         
