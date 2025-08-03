@@ -10,9 +10,10 @@ T4LAPIs is designed to handle complete NFL data workflows, from fetching raw dat
 
 - **📊 Comprehensive NFL Data Coverage**: 24+ different NFL datasets including teams, players, games, statistics, injuries, and advanced analytics
 - **🔄 Automated Data Pipelines**: GitHub Actions workflows for scheduled data updates
+- **🤖 AI-Powered Content Generation**: Automated personalized summaries using Gemini 1.5 Flash + DeepSeek entity extraction
 - **🛠️ CLI Tools**: Command-line interfaces for manual data operations
 - **📈 Smart Update Logic**: Intelligent detection of data gaps and incremental updates
-- **🤖 LLM-Enhanced Entity Linking**: DeepSeek AI integration for intelligent entity extraction and linking
+- **🌐 Google Search Grounding**: Real-time NFL information retrieval for enhanced accuracy
 - **🧪 Full Test Coverage**: Comprehensive test suite ensuring reliability (34+ LLM tests included)
 - **🐳 Docker Support**: Containerized deployment and execution
 - **🔧 Modular Architecture**: Separated concerns for fetching, transforming, and loading data
@@ -26,8 +27,10 @@ T4LAPIs/
 │   └── core/
 │       ├── data/              # Data management modules
 │       ├── db/                # Database initialization
-│       ├── llm/               # LLM integration and entity linking
+│       ├── llm/               # AI integration (Gemini + DeepSeek)
 │       └── utils/             # Utility functions
+├── content_generation/        # AI-powered content generation
+│   └── personal_summary_generator.py  # Gemini-powered personalized summaries
 ├── api/                       # FastAPI REST API
 │   ├── main.py               # Complete CRUD API with 7 endpoints
 │   ├── Dockerfile            # Container configuration
@@ -37,6 +40,9 @@ T4LAPIs/
 ├── tests/                     # Test suite (50+ comprehensive tests)
 ├── docs/                      # Documentation (centralized)
 ├── .github/workflows/         # GitHub Actions automation
+│   ├── games-auto-update.yml         # Automated game data updates
+│   ├── player_weekly_stats_update.yml # Weekly stats automation
+│   └── personal_summary_generation.yml # Hourly personalized summaries
 ├── examples/                  # Usage examples
 ├── injury_updates/            # Injury data specific tools
 ├── roster_updates/           # Roster data specific tools
@@ -213,6 +219,18 @@ GitHub Actions workflows provide scheduled data updates:
 - **Player Rosters**: Weekly on Wednesdays
 - **Team Data**: Monthly updates
 - **Entity Linking**: Every 30 minutes between 16:30-00:30 UTC for article processing
+- **🆕 Personalized Summaries**: Hourly generation (6 AM - 11 PM UTC) using Gemini 1.5 Flash
+
+#### 🤖 Automated Personalized Summary Generation
+
+The system now includes automated generation of personalized NFL summaries powered by Gemini 1.5 Flash:
+
+- **Schedule**: Runs every hour during peak hours (6 AM - 11 PM UTC)
+- **Intelligence**: Uses user preferences to generate tailored content
+- **Fallback**: DeepSeek Chat backup for reliability
+- **Manual Trigger**: Available for testing and on-demand generation
+
+**Setup**: See [GitHub Actions Setup Guide](docs/GitHub_Actions_Setup.md) for configuration details.
 
 For workflow details, see: [⚙️ Automation Workflows](docs/Automation_Workflows.md)
 
@@ -239,8 +257,135 @@ Required environment variables:
 SUPABASE_URL=your_supabase_url
 SUPABASE_KEY=your_supabase_anon_key
 DEEPSEEK_API_KEY=your_deepseek_api_key  # For LLM entity linking
+GEMINI_API_KEY=your_gemini_api_key      # For AI content generation (preferred)
 LOG_LEVEL=INFO  # Optional: DEBUG, INFO, WARNING, ERROR
 ```
+
+## 🤖 AI Content Generation (NEW - Sprint 3)
+
+The system now includes advanced AI-powered content generation capabilities using **Gemini 1.5 Flash** with optional Google Search grounding for creating personalized NFL summaries and trending topic detection.
+
+### LLM Integration (`src/core/llm/llm_setup.py`)
+
+Unified LLM setup supporting multiple AI providers:
+
+#### Available Models
+- **🌟 Gemini 1.5 Flash** (Primary): Fast, engaging content generation with optional Google Search grounding
+- **🔧 DeepSeek Chat** (Fallback): Reliable entity extraction and backup content generation
+
+#### Quick Setup
+
+```python
+from src.core.llm.llm_setup import initialize_model, generate_content_with_model
+
+# Initialize Gemini with grounding
+gemini_config = initialize_model("gemini", "flash", grounding_enabled=True)
+
+# Initialize DeepSeek as fallback
+deepseek_config = initialize_model("deepseek", "chat")
+
+# Generate content
+messages = [
+    {"role": "system", "content": "You are an NFL expert."},
+    {"role": "user", "content": "Summarize the latest Chiefs news."}
+]
+
+response = generate_content_with_model(gemini_config, messages)
+```
+
+### Personalized Summary Generator
+
+Creates personalized AI summaries for each user based on their preferences, leveraging **Gemini's advanced reasoning** and **Google Search grounding** for accurate, engaging content.
+
+#### Features
+- **🎯 User-Centric**: Processes all users and their individual preferences
+- **📊 Multi-Source Data**: Combines articles, player statistics, and team updates
+- **🧠 Rolling Context**: Uses previous summaries as context for continuity
+- **⚡ Gemini-Powered**: Faster generation with superior content quality
+- **🔍 Google Grounding**: Real-time NFL information retrieval (when enabled)
+- **⏰ Time-Aware**: Configurable lookback periods (default: 24 hours)
+- **💾 Database Integration**: Stores results in `generated_updates` table
+- **🔄 Comprehensive Tracking**: Full statistics and error reporting
+
+#### Quick Start
+
+```bash
+# Run personalized summary generation (24-hour lookback)
+python content_generation/personal_summary_generator.py
+
+# The script will:
+# 1. Process all users with preferences
+# 2. Gather new articles and stats for each entity
+# 3. Generate AI summaries using LLM
+# 4. Store results in generated_updates table
+```
+
+#### Example Output
+```
+📊 Generation Results:
+   Users processed: 15
+   Preferences processed: 47
+   Summaries generated: 42
+   Errors encountered: 0
+   Processing time: 127.3s
+   LLM time: 89.2s
+   Success rate: 89.4%
+```
+
+#### Database Schema
+
+The `generated_updates` table stores personalized summaries:
+
+```json
+{
+    "update_id": "f6b7a8fe-99b4-470c-9efe-129728a3e1d1",
+    "user_id": "00b4b7d6-eabe-4179-955b-3b8a8ab32e95",
+    "entity_id": "00-0033873", // Player ID or team abbreviation
+    "entity_type": "player",   // "player" or "team"
+    "created_at": "2025-08-02T20:13:52.312532+00:00",
+    "update_content": "Patrick Mahomes continues to excel this season with 350 passing yards and 3 TDs in the latest Chiefs victory...",
+    "source_article_ids": [1001, 1002, 1003],
+    "source_stat_ids": ["00-0033873_2024_15"]
+}
+```
+
+#### Testing
+
+Comprehensive test suite with 25 test cases covering:
+- ✅ LLM initialization and error handling
+- ✅ User preference processing and validation  
+- ✅ Article and statistics retrieval
+- ✅ Summary generation with context
+- ✅ Database operations and error scenarios
+- ✅ Complete integration workflow
+
+```bash
+# Run tests for personalized summary generator
+python -m pytest tests/test_personal_summary_generator.py -v
+```
+
+### Technical Implementation
+
+#### Workflow
+1. **User Discovery**: Fetch all users with active preferences
+2. **Content Gathering**: Collect new articles and stats for each entity
+3. **Context Building**: Retrieve previous summaries for rolling context
+4. **AI Generation**: Create personalized summaries using DeepSeek LLM
+5. **Storage**: Save generated content with source tracking
+
+#### LLM Integration
+- **Model**: DeepSeek Chat for high-quality content generation
+- **Prompting**: Structured prompts with previous summary context
+- **Temperature**: 0.7 for engaging, natural content
+- **Token Management**: Smart truncation and content optimization
+
+#### Error Handling
+- **Graceful Degradation**: Continue processing on individual failures
+- **Comprehensive Logging**: Detailed error information for debugging
+- **Statistics Tracking**: Monitor success rates and performance metrics
+- **Retry Logic**: Built-in resilience for LLM API calls
+
+For detailed implementation information, see the source code and tests in `content_generation/`.
 
 ### 🔧 Manual Database Setup for LLM Entity Linking
 
@@ -313,7 +458,8 @@ For detailed testing documentation, see: [🧪 Testing Guide](docs/Testing_Guide
 - [📋 NFL Data Reference](docs/NFL_Data_Reference.md) - Complete data tables and columns reference
 - [🛠️ CLI Tools Guide](docs/CLI_Tools_Guide.md) - Command-line interface documentation  
 - [⚙️ Automation Workflows](docs/Automation_Workflows.md) - GitHub Actions workflows
-- [🧪 Testing Guide](docs/Testing_Guide.md) - Test suite documentation
+- [� GitHub Actions Setup](docs/GitHub_Actions_Setup.md) - Automated personalized summary setup guide
+- [�🧪 Testing Guide](docs/Testing_Guide.md) - Test suite documentation
 - [🔧 Technical Details](docs/Technical_Details.md) - Architecture and implementation details
 - [🚀 API Reference](docs/API_Reference.md) - Complete FastAPI REST API documentation
 - [🤖 LLM Test Coverage](docs/LLM_Test_Coverage.md) - LLM functionality testing documentation

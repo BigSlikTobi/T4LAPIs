@@ -1,0 +1,149 @@
+name: 🤖 Personalized Summary Generation
+
+on:
+  # Allow manual triggering for testing
+  workflow_dispatch:
+    inputs:
+      force_generation:
+        description: 'Force generation even if no new content'
+        required: false
+        default: false
+        type: boolean
+      lookback_hours:
+        description: 'Hours to look back for new content (default: 24)'
+        required: false
+        default: '24'
+        type: string
+  
+  # Run every hour during active hours (6 AM to 11 PM UTC)
+  # This covers peak NFL activity times across US time zones
+  schedule:
+    - cron: '0 6-23 * * *'
+
+jobs:
+  generate-summaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30  # Prevent long-running jobs
+    
+    steps:
+    - name: 📦 Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: 📚 Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: 🔧 Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        echo "✅ Dependencies installed successfully"
+        
+    - name: 🌐 Set up environment variables
+      run: |
+        echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
+        echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> $GITHUB_ENV
+        echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> $GITHUB_ENV
+        echo "DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }}" >> $GITHUB_ENV
+        echo "LOG_LEVEL=INFO" >> $GITHUB_ENV
+        echo "✅ Environment variables configured"
+        
+    - name: 🧪 Test LLM connections
+      run: |
+        echo "🔍 Testing LLM connections..."
+        python -c "
+        from src.core.llm.llm_setup import initialize_model
+        
+        # Test Gemini (primary)
+        try:
+            gemini_config = initialize_model('gemini', 'flash', grounding_enabled=False)
+            print('✅ Gemini connection successful')
+        except Exception as e:
+            print(f'⚠️ Gemini connection failed: {e}')
+        
+        # Test DeepSeek (fallback)
+        try:
+            deepseek_config = initialize_model('deepseek', 'chat')
+            print('✅ DeepSeek connection successful')
+        except Exception as e:
+            print(f'❌ DeepSeek connection failed: {e}')
+            exit(1)
+        
+        print('🎉 LLM connections verified')
+        "
+        
+    - name: 🤖 Generate personalized summaries
+      run: |
+        echo "🚀 Starting personalized summary generation..."
+        echo "⏰ Current time: $(date)"
+        echo "🔍 Lookback hours: ${{ github.event.inputs.lookback_hours || '24' }}"
+        
+        # Set lookback hours parameter
+        LOOKBACK_HOURS="${{ github.event.inputs.lookback_hours || '24' }}"
+        
+        # Run the personalized summary generator
+        python content_generation/personal_summary_generator.py
+        
+        echo "✅ Personalized summary generation completed"
+        
+    - name: 📊 Generate summary report
+      if: always()  # Run even if previous step fails
+      run: |
+        echo "📈 Generating workflow summary..."
+        
+        # Get the latest generated summaries count
+        SUMMARY_COUNT=$(python -c "
+        from src.core.db.database_init import get_supabase_client
+        from datetime import datetime, timedelta
+        
+        client = get_supabase_client()
+        
+        # Count summaries generated in the last hour
+        one_hour_ago = (datetime.now() - timedelta(hours=1)).isoformat()
+        response = client.table('generated_updates').select('update_id').gte('created_at', one_hour_ago).execute()
+        
+        print(len(response.data) if response.data else 0)
+        " 2>/dev/null || echo "0")
+        
+        echo "📊 Workflow Summary:"
+        echo "  🕐 Execution time: $(date)"
+        echo "  📝 Summaries generated: $SUMMARY_COUNT"
+        echo "  🔍 Lookback period: ${{ github.event.inputs.lookback_hours || '24' }} hours"
+        echo "  🎯 Trigger: ${{ github.event_name }}"
+        
+        # Set output for potential notification systems
+        echo "SUMMARIES_GENERATED=$SUMMARY_COUNT" >> $GITHUB_ENV
+        
+    - name: 🚨 Handle failures
+      if: failure()
+      run: |
+        echo "❌ Personalized summary generation failed!"
+        echo "🕐 Failure time: $(date)"
+        echo "🔍 Trigger: ${{ github.event_name }}"
+        echo "📋 Lookback hours: ${{ github.event.inputs.lookback_hours || '24' }}"
+        echo ""
+        echo "🛠️ Troubleshooting steps:"
+        echo "1. Check LLM API keys (GEMINI_API_KEY, DEEPSEEK_API_KEY)"
+        echo "2. Verify database connectivity (SUPABASE_URL, SUPABASE_KEY)"
+        echo "3. Review workflow logs for specific error messages"
+        echo "4. Consider running manually with workflow_dispatch"
+        echo ""
+        echo "📞 For support, check the workflow logs above ⬆️"
+        
+    - name: 🎉 Success notification
+      if: success()
+      run: |
+        echo "✅ Personalized summary generation completed successfully!"
+        echo "📝 Generated ${{ env.SUMMARIES_GENERATED }} new summaries"
+        echo "🕐 Completion time: $(date)"
+        echo "⚡ Using Gemini 1.5 Flash with DeepSeek fallback"
+        echo "🎯 Next scheduled run: $(date -d '+1 hour' '+%Y-%m-%d %H:00 UTC')"
