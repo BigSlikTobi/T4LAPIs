@@ -338,8 +338,9 @@ class TestTrendingSummaryGenerator:
         assert "RECENT STATS" not in prompt
         assert "Write a 400-word trending summary" in prompt
     
+    @patch('content_generation.trending_summary_generator.DatabaseManager')
     @patch('content_generation.trending_summary_generator.generate_content_with_model')
-    def test_generate_summary_with_llm_success(self, mock_generate):
+    def test_generate_summary_with_llm_success(self, mock_generate, mock_db_manager):
         """Test successful LLM summary generation."""
         mock_generate.return_value = "Generated trending summary content"
         
@@ -351,8 +352,9 @@ class TestTrendingSummaryGenerator:
         assert summary == "Generated trending summary content"
         assert generator.llm_processing_time > 0
     
+    @patch('content_generation.trending_summary_generator.DatabaseManager')
     @patch('content_generation.trending_summary_generator.generate_content_with_model')
-    def test_generate_summary_with_llm_empty_response(self, mock_generate):
+    def test_generate_summary_with_llm_empty_response(self, mock_generate, mock_db_manager):
         """Test LLM returning empty response."""
         mock_generate.return_value = ""
         
