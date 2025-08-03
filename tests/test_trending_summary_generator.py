@@ -129,7 +129,8 @@ class TestTrendingSummaryGenerator:
         assert generator.dry_run is True
         assert generator.preferred_llm_provider == 'deepseek'
     
-    def test_determine_entity_type(self):
+    @patch('content_generation.trending_summary_generator.DatabaseManager')
+    def test_determine_entity_type(self, mock_db_manager):
         """Test entity type determination logic."""
         generator = TrendingSummaryGenerator()
         
@@ -284,7 +285,8 @@ class TestTrendingSummaryGenerator:
         
         assert stats == []
     
-    def test_create_trending_summary_prompt_player(self):
+    @patch('content_generation.trending_summary_generator.DatabaseManager')
+    def test_create_trending_summary_prompt_player(self, mock_db_manager):
         """Test prompt creation for player with articles and stats."""
         generator = TrendingSummaryGenerator()
         
@@ -315,7 +317,8 @@ class TestTrendingSummaryGenerator:
         assert "Week 18: 350 pass yds, 3 pass TDs" in prompt
         assert "Write a 400-word trending summary" in prompt
     
-    def test_create_trending_summary_prompt_team(self):
+    @patch('content_generation.trending_summary_generator.DatabaseManager')
+    def test_create_trending_summary_prompt_team(self, mock_db_manager):
         """Test prompt creation for team with articles only."""
         generator = TrendingSummaryGenerator()
         
@@ -360,7 +363,8 @@ class TestTrendingSummaryGenerator:
         
         assert summary is None
     
-    def test_generate_summary_with_llm_no_config(self):
+    @patch('content_generation.trending_summary_generator.DatabaseManager')
+    def test_generate_summary_with_llm_no_config(self, mock_db_manager):
         """Test LLM generation without initialized config."""
         generator = TrendingSummaryGenerator()
         generator.llm_config = None
