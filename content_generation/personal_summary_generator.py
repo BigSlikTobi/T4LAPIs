@@ -22,6 +22,7 @@ import sys
 import logging
 import uuid
 import json
+import argparse
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 
@@ -36,14 +37,21 @@ from src.core.llm.llm_setup import initialize_model, generate_content_with_model
 class PersonalizedSummaryGenerator:
     """Generates personalized NFL summaries for users based on their preferences."""
     
-    def __init__(self, lookback_hours: int = 24):
+    def __init__(self, lookback_hours: int = 24, dry_run: bool = False, 
+                 target_user_id: Optional[str] = None, preferred_llm_provider: str = 'gemini'):
         """Initialize the summary generator.
         
         Args:
             lookback_hours: How many hours to look back for new content
+            dry_run: If True, don't save summaries to database
+            target_user_id: If provided, only generate summaries for this user
+            preferred_llm_provider: Preferred LLM provider ('gemini' or 'deepseek')
         """
         self.logger = logging.getLogger(__name__)
         self.lookback_hours = lookback_hours
+        self.dry_run = dry_run
+        self.target_user_id = target_user_id
+        self.preferred_llm_provider = preferred_llm_provider
         
         # Initialize database managers for different tables
         self.users_db = DatabaseManager("users")
@@ -66,41 +74,54 @@ class PersonalizedSummaryGenerator:
             'llm_time': 0.0
         }
         
-        self.logger.info(f"PersonalizedSummaryGenerator initialized with {lookback_hours}h lookback")
+        mode_msg = "DRY RUN mode" if self.dry_run else "LIVE mode"
+        user_msg = f" (user: {self.target_user_id})" if self.target_user_id else " (all users)"
+        self.logger.info(f"PersonalizedSummaryGenerator initialized with {lookback_hours}h lookback, {mode_msg}{user_msg}")
     
     def initialize_llm(self):
-        """Initialize the Gemini LLM client with grounding."""
+        """Initialize the LLM client with preferred provider and fallback."""
         try:
-            self.logger.info("Initializing Gemini LLM with Google Search grounding...")
+            self.logger.info(f"Initializing {self.preferred_llm_provider.title()} LLM...")
             
-            # Initialize Gemini model with grounding for better NFL knowledge
-            self.llm_config = initialize_model(
-                provider="gemini",
-                model_type="flash",  # Fast and capable
-                grounding_enabled=True  # Enable Google Search for real-time NFL info
-            )
-            
-            self.logger.info("Gemini LLM client initialized successfully")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Failed to initialize Gemini LLM: {e}")
-            self.logger.info("Falling back to DeepSeek...")
-            
-            try:
-                # Fallback to DeepSeek if Gemini fails
+            if self.preferred_llm_provider == 'gemini':
+                # Initialize Gemini model with grounding for better NFL knowledge
+                self.llm_config = initialize_model(
+                    provider="gemini",
+                    model_type="flash",  # Fast and capable
+                    grounding_enabled=True  # Enable Google Search for real-time NFL info
+                )
+                self.logger.info("Gemini LLM client initialized successfully")
+                return True
+            elif self.preferred_llm_provider == 'deepseek':
+                # Initialize DeepSeek directly
                 self.llm_config = initialize_model(
                     provider="deepseek",
                     model_type="chat",
                     grounding_enabled=False
                 )
-                
-                self.logger.info("DeepSeek LLM client initialized successfully as fallback")
+                self.logger.info("DeepSeek LLM client initialized successfully")
                 return True
-                
-            except Exception as e2:
-                self.logger.error(f"Failed to initialize both Gemini and DeepSeek: {e2}")
-                return False
+            else:
+                raise ValueError(f"Unknown LLM provider: {self.preferred_llm_provider}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize {self.preferred_llm_provider.title()} LLM: {e}")
+            
+            # Try fallback if primary provider fails
+            if self.preferred_llm_provider != 'deepseek':
+                self.logger.info("Falling back to DeepSeek...")
+                try:
+                    self.llm_config = initialize_model(
+                        provider="deepseek",
+                        model_type="chat",
+                        grounding_enabled=False
+                    )
+                    self.logger.info("DeepSeek LLM client initialized successfully as fallback")
+                    return True
+                except Exception as e2:
+                    self.logger.error(f"Failed to initialize fallback DeepSeek: {e2}")
+            
+            return False
     
     def get_all_users_with_preferences(self) -> List[Dict[str, Any]]:
         """Get all users who have preferences set.
@@ -109,13 +130,20 @@ class PersonalizedSummaryGenerator:
             List of user dictionaries with their preferences
         """
         try:
-            self.logger.info("Fetching all users with preferences...")
+            self.logger.info("Fetching users with preferences...")
             
-            # Get all users
-            users_response = self.users_db.supabase.table("users").select("user_id").execute()
+            # Get users (filter by target_user_id if specified)
+            if self.target_user_id:
+                users_response = self.users_db.supabase.table("users").select("user_id").eq("user_id", self.target_user_id).execute()
+                self.logger.info(f"Filtering for specific user: {self.target_user_id}")
+            else:
+                users_response = self.users_db.supabase.table("users").select("user_id").execute()
             
             if not hasattr(users_response, 'data') or not users_response.data:
-                self.logger.warning("No users found in database")
+                if self.target_user_id:
+                    self.logger.warning(f"User {self.target_user_id} not found in database")
+                else:
+                    self.logger.warning("No users found in database")
                 return []
             
             users_with_preferences = []
@@ -166,6 +194,8 @@ class PersonalizedSummaryGenerator:
     def get_new_articles_for_entity(self, entity_id: str, entity_type: str, since_hours: int = 24) -> List[Dict[str, Any]]:
         """Get new articles mentioning the entity since the specified time.
         
+        Filters articles by their creation date (SourceArticles.created_at) for accurate timeline analysis.
+        
         Args:
             entity_id: Entity ID to search for
             entity_type: Type of entity ('player' or 'team')
@@ -180,27 +210,20 @@ class PersonalizedSummaryGenerator:
             cutoff_time_str = cutoff_time.isoformat()
             
             # Get articles that mention this entity in the specified timeframe
+            # Filter by SourceArticles.created_at at the database level for better performance
             response = self.entity_links_db.supabase.table("article_entity_links").select(
-                "article_id, SourceArticles(id, headline, Content, Author, publishedAt, source)"
-            ).eq("entity_id", entity_id).eq("entity_type", entity_type).execute()
+                "article_id, SourceArticles!inner(id, headline, Content, Author, created_at, source)"
+            ).eq("entity_id", entity_id).eq("entity_type", entity_type).gte("SourceArticles.created_at", cutoff_time_str).execute()
             
             if not hasattr(response, 'data') or not response.data:
                 return []
             
-            # Filter articles by date
+            # Extract articles from the response (already filtered by database)
             new_articles = []
             for link in response.data:
                 article = link.get('SourceArticles')
-                if article and article.get('publishedAt'):
-                    published_date = article['publishedAt']
-                    # Convert published date to datetime for comparison
-                    try:
-                        article_date = datetime.fromisoformat(published_date.replace('Z', '+00:00'))
-                        if article_date >= cutoff_time:
-                            new_articles.append(article)
-                    except (ValueError, TypeError):
-                        # Skip articles with invalid dates
-                        continue
+                if article:
+                    new_articles.append(article)
             
             self.logger.debug(f"Found {len(new_articles)} new articles for {entity_type} {entity_id}")
             return new_articles
@@ -307,13 +330,13 @@ Recent Articles ({len(articles)} found):
             title = article.get('headline', 'No title')
             content = article.get('Content', '')[:300]  # Truncate content
             source = article.get('source', 'Unknown')
-            published = article.get('publishedAt', 'Unknown date')
+            created = article.get('created_at', 'Unknown date')
             
             prompt += f"""
 Article {i+1}:
 Title: {title}
 Source: {source}
-Date: {published}
+Date: {created}
 Content: {content}...
 """
         
@@ -430,6 +453,11 @@ Generate the personalized summary now:"""
                 # 'entity_type': entity_type,
             }
             
+            if self.dry_run:
+                self.logger.debug(f"DRY RUN: Would save summary for user {user_id}, entity {entity_id}")
+                self.logger.debug(f"Summary preview: {summary[:100]}...")
+                return True
+            
             result = self.generated_updates_db.insert_records([record])
             
             if result.get('success', False):
@@ -442,6 +470,36 @@ Generate the personalized summary now:"""
         except Exception as e:
             self.logger.error(f"Error saving generated summary: {e}")
             return False
+    
+    def preview_generation_stats(self) -> Dict[str, int]:
+        """Preview statistics about what would be generated without actually running.
+        
+        Returns:
+            Dictionary with preview statistics
+        """
+        try:
+            # Get users with preferences
+            users_with_preferences = self.get_all_users_with_preferences()
+            
+            total_preferences = sum(len(user_data['preferences']) for user_data in users_with_preferences)
+            
+            # Estimate how many summaries would be generated
+            # For now, assume all preferences will generate summaries
+            estimated_summaries = total_preferences
+            
+            return {
+                'users_with_preferences': len(users_with_preferences),
+                'total_preferences': total_preferences,
+                'estimated_summaries': estimated_summaries
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error getting preview stats: {e}")
+            return {
+                'users_with_preferences': 0,
+                'total_preferences': 0,
+                'estimated_summaries': 0
+            }
     
     def process_user_preference(self, user_id: str, preference: Dict[str, Any]) -> bool:
         """Process a single user preference and generate summary if needed.
@@ -575,18 +633,65 @@ Generate the personalized summary now:"""
 
 def main():
     """Main function to run the personalized summary generator."""
+    parser = argparse.ArgumentParser(
+        description='Generate personalized NFL summaries for users based on their preferences',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s                              # Generate summaries for last 24 hours
+  %(prog)s --hours 48                   # Generate summaries for last 48 hours
+  %(prog)s --user-id user123            # Generate summaries for specific user only
+  %(prog)s --verbose                    # Enable detailed logging
+  %(prog)s --dry-run                    # Preview what would be generated without saving
+        """
+    )
+    
+    parser.add_argument('--hours', type=int, default=24,
+                       help='Number of hours to look back for new content (default: 24)')
+    parser.add_argument('--user-id', type=str,
+                       help='Generate summaries for specific user only (default: all users)')
+    parser.add_argument('--dry-run', action='store_true',
+                       help='Preview generation without saving to database')
+    parser.add_argument('--verbose', '-v', action='store_true',
+                       help='Enable verbose logging')
+    parser.add_argument('--llm-provider', choices=['gemini', 'deepseek'], default='gemini',
+                       help='LLM provider to use (default: gemini with deepseek fallback)')
+    parser.add_argument('--stats-only', action='store_true',
+                       help='Only show statistics without generating summaries')
+    
+    args = parser.parse_args()
+    
     # Set up logging
+    log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
-        level=logging.INFO,
+        level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
     logger = logging.getLogger(__name__)
     logger.info("Starting Personalized Summary Generator")
     
+    if args.dry_run:
+        logger.info("🔍 DRY RUN MODE - No summaries will be saved to database")
+    
     try:
         # Initialize and run the generator
-        generator = PersonalizedSummaryGenerator(lookback_hours=24)
+        generator = PersonalizedSummaryGenerator(
+            lookback_hours=args.hours,
+            dry_run=args.dry_run,
+            target_user_id=args.user_id,
+            preferred_llm_provider=args.llm_provider
+        )
+        
+        if args.stats_only:
+            # Just show preview statistics
+            stats = generator.preview_generation_stats()
+            print(f"\n📊 Generation Preview:")
+            print(f"   Users with preferences: {stats.get('users_with_preferences', 0)}")
+            print(f"   Total preferences: {stats.get('total_preferences', 0)}")
+            print(f"   Estimated summaries: {stats.get('estimated_summaries', 0)}")
+            return 0
+        
         result = generator.run_personalized_summary_generation()
         
         if result['success']:
@@ -603,11 +708,17 @@ def main():
             if stats['preferences_processed'] > 0:
                 success_rate = (stats['summaries_generated'] / stats['preferences_processed']) * 100
                 print(f"   Success rate: {success_rate:.1f}%")
+                
+            if args.dry_run:
+                print(f"\n🔍 DRY RUN - No summaries were saved to database")
         else:
             logger.error(f"❌ Personalized summary generation failed: {result.get('error', 'Unknown error')}")
             print(f"\n📊 Stats: {result['stats']}")
             return 1
             
+    except KeyboardInterrupt:
+        logger.info("Generation interrupted by user")
+        return 130
     except Exception as e:
         logger.error(f"Unexpected error in main: {e}")
         return 1
