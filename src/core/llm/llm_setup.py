@@ -37,15 +37,12 @@ def initialize_model(provider: str, model_type: str = "default", grounding_enabl
 
 def _initialize_gemini(model_type: str = "default", grounding_enabled: bool = True, api_key: Optional[str] = None, logger=None):
     """Initialize Gemini model with optional Google Search grounding."""
-
-def _initialize_gemini(model_type: str = "default", grounding_enabled: bool = True, api_key: Optional[str] = None, logger=None):
-    """Initialize Gemini model with optional Google Search grounding."""
     if logger is None:
         logger = logging.getLogger(__name__)
         
     if model_type == "lite":
         selected_model = "gemini-2.5-flash-lite"  # Use available model
-        logger.info("Using Gemini 2.5 Flash model")
+        logger.info("Using Gemini 2.5 Flash Lite model")
     elif model_type == "flash":
         selected_model = "gemini-2.5-flash"
         logger.info("Using Gemini 2.5 Flash model")

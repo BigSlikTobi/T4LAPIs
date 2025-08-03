@@ -21,6 +21,7 @@ import os
 import sys
 import logging
 import uuid
+import json
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 
@@ -30,24 +31,6 @@ sys.path.insert(0, project_root)
 
 from src.core.utils.database import DatabaseManager
 from src.core.llm.llm_setup import initialize_model, generate_content_with_model
-
-import sys
-import os
-import json
-import logging
-import uuid
-from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Any, Optional, Tuple
-
-# Add project root to path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-from src.core.utils.database import DatabaseManager
-from src.core.utils.logging import get_logger
-from src.core.llm.llm_init import get_deepseek_client
-from src.core.db.database_init import get_supabase_client
 
 
 class PersonalizedSummaryGenerator:
@@ -598,7 +581,7 @@ def main():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     logger.info("Starting Personalized Summary Generator")
     
     try:
