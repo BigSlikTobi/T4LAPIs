@@ -1,0 +1,57 @@
+# Feed sources for the NFL news pipeline
+# Add your known RSS and sitemap URLs here. Only public feeds; no crawling.
+
+version: 1
+
+defaults:
+  user_agent: T4L-End2End/1.0 (+contact@example.com)
+  timeout_seconds: 30
+  max_parallel_fetches: 10
+
+sources:
+  # --- RSS ---
+- name: ESPN - NFL News
+  type: rss
+  url: https://www.espn.com/espn/rss/nfl/news
+  publisher: ESPN
+  nfl_only: true
+  enabled: true
+
+- name: CBS Sports - NFL Headlines
+  type: rss
+  url: https://www.cbssports.com/rss/headlines/nfl/
+  publisher: CBS Sports
+  nfl_only: true
+  enabled: true
+
+- name: Yahoo Sports - NFL
+  type: rss
+  url: https://sports.yahoo.com/nfl/rss/
+  publisher: Yahoo Sports
+  nfl_only: true
+  enabled: true
+
+ # --- Sitemaps ---
+- name: NFL.com - Articles Monthly Sitemap
+  type: sitemap
+  url_template: https://www.nfl.com/sitemap/html/articles/{YYYY}/{MM}
+  publisher: NFL.com
+  nfl_only: true
+  enabled: true
+  max_articles: 30     # Process up to 30 recent articles
+  days_back: 7         # Only articles from last 7 days
+  extract_content: true # Extract full article content
+  notes: Construct at runtime using current UTC year and zero-padded month (e.g., 2025/09)
+
+- name: Fox Sports - NFL News HTML
+  type: html
+  url: https://www.foxsports.com/nfl/news
+  publisher: Fox Sports
+  nfl_only: true
+  enabled: false
+  notes: No RSS/sitemap available. Use as fallback HTML parsing if needed (subject to TOS).
+
+# Notes:
+# - Set nfl_only=true for feeds that are guaranteed NFL-only (skip some filters)
+# - Disable a source by setting enabled: false (kept for later)
+# - The pipeline will dedupe by URL and apply rules/LLM as configured
