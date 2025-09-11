@@ -1,7 +1,7 @@
 # Implementation Plan
 
 -
-  1. [ ] Set up project structure and core data models
+  1. [x] Set up project structure and core data models
   - Create directory structure for the NFL news pipeline components
   - Define core data models (NewsItem, ProcessedNewsItem, SourceWatermark,
     FilterResult)
@@ -9,14 +9,14 @@
   - _Requirements: 1.1, 1.6, 4.2_
 
 -
-  2. [ ] Implement configuration management system
-  - [ ] 2.1 Create feeds.yaml parser and validator
+  2. [x] Implement configuration management system
+  - [x] 2.1 Create feeds.yaml parser and validator
     - Write ConfigManager class to parse feeds.yaml structure
     - Implement validation for required fields and data types
     - Add support for url_template construction with date placeholders
     - _Requirements: 1.1, 1.3, 1.5_
 
-  - [ ] 2.2 Add configuration loading and error handling
+  - [x] 2.2 Add configuration loading and error handling
     - Implement configuration file loading with proper error messages
     - Add validation for enabled/disabled sources filtering
     - Create unit tests for configuration parsing edge cases
