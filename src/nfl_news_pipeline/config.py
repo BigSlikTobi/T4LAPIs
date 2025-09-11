@@ -39,9 +39,9 @@ class ConfigManager:
             raise ConfigError("'sources' must be a list in feeds.yaml")
 
         defaults_cfg = DefaultsConfig(
-            user_agent=str(defaults.get("user_agent", DefaultsConfig.user_agent)),
-            timeout_seconds=int(defaults.get("timeout_seconds", DefaultsConfig.timeout_seconds)),
-            max_parallel_fetches=int(defaults.get("max_parallel_fetches", DefaultsConfig.max_parallel_fetches)),
+            user_agent=str(defaults.get("user_agent", "Mozilla/5.0")),
+            timeout_seconds=int(defaults.get("timeout_seconds", 10)),
+            max_parallel_fetches=int(defaults.get("max_parallel_fetches", 5)),
         )
 
         feed_cfgs: List[FeedConfig] = []
