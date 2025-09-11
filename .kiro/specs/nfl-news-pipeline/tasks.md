@@ -43,54 +43,56 @@
     - _Requirements: 1.1, 5.4_
 
 -
-  4. [ ] Build sitemap processing capabilities
-  - [ ] 4.1 Create sitemap processor with URL construction
+  4. [x] Build sitemap processing capabilities
+  - [x] 4.1 Create sitemap processor with URL construction
     - Implement SitemapProcessor class for XML sitemap parsing
     - Add dynamic URL construction using url_template with current date
     - Extract URLs and metadata from sitemap entries
     - _Requirements: 1.2, 1.3, 1.4, 4.2_
 
-  - [ ] 4.2 Add date filtering and article limits
+  - [x] 4.2 Add date filtering and article limits
     - Implement days_back filtering to process only recent articles
     - Add max_articles limit enforcement for sitemap sources
     - Handle timezone conversion for publication date comparisons
     - _Requirements: 1.3, 1.4_
 
-  - [ ] 4.3 Create sitemap processor unit tests
+  - [x] 4.3 Create sitemap processor unit tests
     - Write tests with mock sitemap XML responses
     - Test URL template construction with various date formats
     - Validate date filtering and article limit enforcement
     - _Requirements: 1.2, 1.3, 1.4_
 
 -
-  5. [ ] Implement NFL relevance filtering system
-  - [ ] 5.1 Create rule-based filter with NFL keywords
+  5. [x] Implement NFL relevance filtering system
+  - [x] 5.1 Create rule-based filter with NFL keywords
     - Implement RuleBasedFilter class with NFL team names and keywords
     - Add URL pattern matching for obvious NFL content
     - Create confidence scoring based on keyword matches and patterns
-    - _Requirements: 2.1, 2.4, 2.5_
+  - Persist each filtering decision (rule or LLM) to Supabase for metrics (FK to news URL entry)
+  - _Requirements: 2.1, 2.4, 2.5, 4.3, 4.7_
 
-  - [ ] 5.2 Build LLM-assisted filtering for ambiguous cases
+  - [x] 5.2 Build LLM-assisted filtering for ambiguous cases
     - Implement LLMFilter class using existing LLM setup
     - Create prompts for NFL relevance analysis using only metadata
     - Add logic to determine when LLM filtering is needed
-    - _Requirements: 2.2, 2.3, 2.4, 2.5_
+  - Persist LLM outputs (score, reasoning, model id) to Supabase linked to the article
+  - _Requirements: 2.2, 2.3, 2.4, 2.5, 4.3, 4.7_
 
-  - [ ] 5.3 Create comprehensive filter testing
+  - [x] 5.3 Create comprehensive filter testing
     - Write unit tests with known NFL and non-NFL content examples
     - Test rule-based filtering accuracy and confidence scoring
     - Mock LLM responses for consistent testing of AI filtering
-    - _Requirements: 2.1, 2.2, 2.4, 2.5_
+  - _Requirements: 2.1, 2.2, 2.4, 2.5, 4.7_
 
 -
   6. [ ] Build database schema and storage layer
   - [ ] 6.1 Create Supabase database schema
     - Write SQL migration scripts for news_urls, source_watermarks, and
-      pipeline_audit_log tables
+      pipeline_audit_log tables (including filter decisions with FK to news_urls)
     - Add proper indexes for efficient querying by date, source, and relevance
       score
     - Implement database initialization and migration logic
-    - _Requirements: 4.1, 4.2, 4.4_
+  - _Requirements: 4.1, 4.2, 4.4, 4.7_
 
   - [ ] 6.2 Implement storage manager with deduplication
     - Create StorageManager class using existing Supabase client
