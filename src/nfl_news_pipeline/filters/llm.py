@@ -66,7 +66,8 @@ class LLMFilter:
             resp = client.chat.completions.create(model=self.model, messages=msg)
             content = resp.choices[0].message.content.strip()
             # Very permissive parse; expect a JSON-like string
-            import json, re
+            import json
+            import re
 
             m = re.search(r"\{.*\}", content, re.S)
             data = json.loads(m.group(0)) if m else {}
