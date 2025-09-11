@@ -147,7 +147,6 @@ class ConfigManager:
             extract_content=extract_content,
         )
 
-        
     @staticmethod
     def _looks_like_url(u: str) -> bool:
         return isinstance(u, str) and (u.startswith("http://") or u.startswith("https://"))
