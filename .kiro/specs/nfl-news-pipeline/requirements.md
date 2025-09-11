@@ -60,6 +60,8 @@ The pipeline emphasizes transparency, auditability, and respect for publisher te
 4. WHEN creating database entries THEN the system SHALL ensure proper indexing for efficient queries
 5. WHEN database operations fail THEN the system SHALL implement retry logic with exponential backoff
 6. WHEN storing data THEN the system SHALL validate schema compliance before insertion
+7. WHEN storing filtering decisions THEN the system SHALL save them in a dedicated Supabase table (e.g., `filter_decisions` or `pipeline_audit_log`) linked to each news URL row via foreign key
+8. WHEN saving filtering decisions THEN the system SHALL include method (rule/llm), stage (rule or llm), confidence score, reasoning text, model identifier/version, and created_at timestamp to support quality metrics and analysis
 
 ### Requirement 5
 

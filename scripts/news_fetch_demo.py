@@ -15,18 +15,23 @@ import argparse
 import sys
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Tuple
+from dotenv import load_dotenv
 
 # Make sure repo root is on sys.path so 'src' package resolves when running from scripts/
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# Load environment variables (e.g., OPENAI_API_KEY) from repo root .env if present
+load_dotenv(str(ROOT / ".env"), override=False)
+
 # Import using the project layout (src/ as top-level package)
 from src.nfl_news_pipeline.config import ConfigManager
 from src.nfl_news_pipeline.models import FeedConfig, NewsItem
 from src.nfl_news_pipeline.processors.rss import RSSProcessor
 from src.nfl_news_pipeline.processors.sitemap import SitemapProcessor
+from src.nfl_news_pipeline.filters.relevance import filter_item
 
 
 def fmt_dt(dt: datetime | None) -> str:
@@ -47,6 +52,24 @@ def print_items(title: str, items: List[NewsItem], show: int) -> None:
             print(f"    Source: {item.source_name} ({item.publisher or '-'})")
 
 
+def apply_filter(items: List[NewsItem], verbose: bool) -> Tuple[List[NewsItem], int, int]:
+    """Filter items for NFL relevance using rule-based first, then LLM if ambiguous.
+
+    Returns: (relevant_items, total_count, kept_count)
+    """
+    kept: List[NewsItem] = []
+    for it in items:
+        result, stage = filter_item(it)
+        if verbose:
+            print(
+                f"      • filter: stage={stage} relevant={result.is_relevant} "
+                f"score={result.confidence_score:.2f} reason={result.reasoning}"
+            )
+        if result.is_relevant:
+            kept.append(it)
+    return kept, len(items), len(kept)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fetch and print news items from RSS and Sitemap feeds")
     parser.add_argument("--config", default="feeds.yaml", help="Path to feeds.yaml (default: feeds.yaml)")
@@ -55,6 +78,7 @@ def main() -> None:
     group.add_argument("--rss-only", action="store_true", help="Only fetch RSS feeds")
     group.add_argument("--sitemap-only", action="store_true", help="Only fetch Sitemap feeds")
     parser.add_argument("--verbose", action="store_true", help="Print extra details (URLs, counts)")
+    parser.add_argument("--filter", action="store_true", help="Apply NFL relevance filtering to results")
     args = parser.parse_args()
 
     # Resolve config path (support running from repo root or scripts/)
@@ -88,6 +112,12 @@ def main() -> None:
                 per_feed = [it for it in rss_items if it.source_name == feed.name]
                 # Sort newest first
                 per_feed.sort(key=lambda x: x.publication_date or now, reverse=True)
+                if args.filter:
+                    if args.verbose:
+                        print(f"Filtering RSS: {feed.name} ({len(per_feed)} items before)")
+                    per_feed, total, kept = apply_filter(per_feed, args.verbose)
+                    if args.verbose:
+                        print(f"Filtered RSS: {feed.name} kept {kept}/{total}")
                 print_items(f"RSS: {feed.name}", per_feed, args.show)
 
     if not args.rss_only:
@@ -107,6 +137,12 @@ def main() -> None:
                     items = sp.fetch_sitemap(feed)
                     if args.verbose:
                         print(f"Fetched {len(items)} items from {feed.name}")
+                    if args.filter:
+                        if args.verbose:
+                            print(f"Filtering Sitemap: {feed.name} ({len(items)} items before)")
+                        items, total, kept = apply_filter(items, args.verbose)
+                        if args.verbose:
+                            print(f"Filtered Sitemap: {feed.name} kept {kept}/{total}")
                     # Already sorted in implementation; sort again just in case
                     items.sort(key=lambda x: x.publication_date or now, reverse=True)
                     print_items(f"Sitemap: {feed.name}", items, args.show)
