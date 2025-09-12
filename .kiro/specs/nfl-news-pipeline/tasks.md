@@ -196,14 +196,15 @@
 
 -
   12. [ ] Final integration and comprehensive testing
-  - [ ] 12.1 Perform end-to-end system testing
+  - [x] 12.1 Perform end-to-end system testing
     - Test complete pipeline with real feeds in controlled environment
     - Validate all requirements are met with comprehensive test scenarios
     - Perform load testing with multiple sources and large data volumes
     - _Requirements: All requirements_
 
-  - [ ] 12.2 Create documentation and deployment guide
+  - [x] 12.2 Create documentation and deployment guide
     - Write comprehensive documentation for pipeline configuration and usage
     - Create troubleshooting guide and operational procedures
     - Add deployment instructions and monitoring setup guide
+    - (Added docs/Getting_Started.md, updated CLI usage and referenced GitHub Actions setup)
     - _Requirements: 5.1, 5.2, 5.3, 5.4_

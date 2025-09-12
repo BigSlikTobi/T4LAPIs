@@ -27,8 +27,8 @@ T4LAPIs/
 ├── src/                        # Core application code
 │   └── core/
 │       ├── data/              # Data management modules
-│       ├── db/                # Database initialization
-│       ├── llm/               # AI integration (Gemini + DeepSeek)
+For a friendly step-by-step setup, read docs/Getting_Started.md.
+
 │       └── utils/             # Utility functions
 ├── content_generation/        # AI-powered content generation
 │   ├── personal_summary_generator.py  # Gemini-powered personalized summaries
