@@ -153,14 +153,14 @@
     - _Requirements: 1.1, 1.2, 2.1, 2.2, 3.1, 4.1_
 
 -
-  9. [ ] Implement entity extraction and categorization
-  - [ ] 9.1 Add entity extraction from news metadata
+  9. [x] Implement entity extraction and categorization
+  - [x] 9.1 Add entity extraction from news metadata
     - Create entity extraction logic for NFL teams, players, and topics
     - Implement entity normalization and linking to existing databases
     - Add category tagging based on extracted entities and content analysis
     - _Requirements: 7.1, 7.2, 7.4, 7.5_
 
-  - [ ] 9.2 Create entity processing unit tests
+  - [x] 9.2 Create entity processing unit tests
     - Write tests for entity extraction accuracy with known content
     - Test entity normalization and database linking
     - Validate category tagging and relationship detection
