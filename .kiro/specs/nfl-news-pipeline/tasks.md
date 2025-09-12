@@ -85,8 +85,8 @@
   - _Requirements: 2.1, 2.2, 2.4, 2.5, 4.7_
 
 -
-  6. [ ] Build database schema and storage layer
-  - [ ] 6.1 Create Supabase database schema
+  6. [x] Build database schema and storage layer
+  - [x] 6.1 Create Supabase database schema
     - Write SQL migration scripts for news_urls, source_watermarks, and
       pipeline_audit_log tables (including filter decisions with FK to news_urls)
     - Add proper indexes for efficient querying by date, source, and relevance
@@ -94,19 +94,19 @@
     - Implement database initialization and migration logic
   - _Requirements: 4.1, 4.2, 4.4, 4.7_
 
-  - [ ] 6.2 Implement storage manager with deduplication
+  - [x] 6.2 Implement storage manager with deduplication
     - Create StorageManager class using existing Supabase client
     - Implement URL-based deduplication logic across all sources
     - Add batch insert operations for efficient database writes
     - _Requirements: 3.1, 3.3, 4.1, 4.5_
 
-  - [ ] 6.3 Add watermark management for incremental processing
+  - [x] 6.3 Add watermark management for incremental processing
     - Implement watermark storage and retrieval for each source
     - Add logic to update watermarks only on successful processing
     - Create watermark-based filtering to process only new items
     - _Requirements: 3.2, 3.4, 3.5, 3.6_
 
-  - [ ] 6.4 Create storage layer unit tests
+  - [x] 6.4 Create storage layer unit tests
     - Write tests for deduplication logic with mock database responses
     - Test watermark management and incremental processing
     - Validate batch insert operations and error handling
