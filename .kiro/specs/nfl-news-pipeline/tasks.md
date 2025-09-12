@@ -181,14 +181,14 @@
     - _Requirements: 5.1, 5.2, 5.3_
 
 -
-  11. [ ] Create CLI interface and deployment scripts
-  - [ ] 11.1 Build command-line interface for pipeline execution
+  11. [x] Create CLI interface and deployment scripts
+  - [x] 11.1 Build command-line interface for pipeline execution
     - Create CLI script for manual pipeline execution and testing
     - Add options for single-source processing and dry-run mode
     - Implement configuration validation and status reporting commands
     - _Requirements: 5.1, 5.5_
 
-  - [ ] 11.2 Add deployment and scheduling configuration
+  - [x] 11.2 Add deployment and scheduling configuration
     - Create deployment scripts and configuration files
     - Add scheduling configuration for automated pipeline runs
     - Implement health check endpoints and monitoring integration
