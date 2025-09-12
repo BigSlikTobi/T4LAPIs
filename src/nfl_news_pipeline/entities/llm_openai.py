@@ -78,3 +78,46 @@ class OpenAIEntityExtractor:
                 pass
 
         return {"players": [], "teams": []}
+
+    def disambiguate_player(self, last_name: str, article_text: str, candidates: list[dict], max_retries: int = 2) -> Optional[str]:
+        """Given a last name and candidate list [{name, id}], return the best-matching player's id or full name.
+
+        Returns None on failure. Prefers returning the canonical id when possible.
+        """
+        if not self.client or not candidates:
+            return None
+        system = (
+            "You are an NFL entity linker. Given a short article and a list of candidate players with the same last name, "
+            "pick the one referenced by the article. Respond with ONLY JSON: {\"id\": <id-or-blank>, \"name\": <full-name-or-blank>}"
+        )
+        cand_json = json.dumps(candidates, ensure_ascii=False)
+        user = (
+            f"Last name: {last_name}\n"
+            f"Candidates: {cand_json}\n"
+            f"Article:\n'''{article_text.strip()}'''\n\n"
+            "Return strictly the JSON payload."
+        )
+        for _ in range(max_retries):
+            try:
+                resp = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    max_tokens=200,
+                    temperature=0.1,
+                    timeout=self.timeout_s,
+                )
+                content = (resp.choices[0].message.content or "").strip()
+                m = re.search(r"\{.*\}", content, re.S)
+                data = json.loads(m.group(0)) if m else {}
+                pid = (data.get("id") or "").strip()
+                pname = (data.get("name") or "").strip()
+                if pid:
+                    return pid
+                if pname:
+                    return pname
+            except Exception:
+                continue
+        return None
