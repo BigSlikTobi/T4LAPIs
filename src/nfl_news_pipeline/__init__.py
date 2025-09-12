@@ -10,6 +10,7 @@ from .models import (
 	PipelineConfig,
 )
 from .filters import RuleBasedFilter, LLMFilter
+from .storage import StorageManager, StorageResult
 
 __all__ = [
 	"NewsItem",
@@ -21,4 +22,6 @@ __all__ = [
 	"PipelineConfig",
 	"RuleBasedFilter",
 	"LLMFilter",
+	"StorageManager",
+	"StorageResult",
 ]

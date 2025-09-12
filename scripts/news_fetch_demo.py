@@ -15,7 +15,7 @@ import argparse
 import sys
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 from dotenv import load_dotenv
 
 # Make sure repo root is on sys.path so 'src' package resolves when running from scripts/
@@ -32,6 +32,8 @@ from src.nfl_news_pipeline.models import FeedConfig, NewsItem
 from src.nfl_news_pipeline.processors.rss import RSSProcessor
 from src.nfl_news_pipeline.processors.sitemap import SitemapProcessor
 from src.nfl_news_pipeline.filters.relevance import filter_item
+
+DEFAULT_LLM_MODEL_ID = "default-model"
 
 
 def fmt_dt(dt: datetime | None) -> str:
@@ -52,12 +54,17 @@ def print_items(title: str, items: List[NewsItem], show: int) -> None:
             print(f"    Source: {item.source_name} ({item.publisher or '-'})")
 
 
-def apply_filter(items: List[NewsItem], verbose: bool) -> Tuple[List[NewsItem], int, int]:
+def apply_filter(
+    items: List[NewsItem],
+    verbose: bool,
+    collect_decisions: bool = False,
+) -> Tuple[List[NewsItem], int, int, List[Dict[str, Any]]]:
     """Filter items for NFL relevance using rule-based first, then LLM if ambiguous.
 
-    Returns: (relevant_items, total_count, kept_count)
+    Returns: (relevant_items, total_count, kept_count, decisions)
     """
     kept: List[NewsItem] = []
+    decisions: List[Dict[str, Any]] = []
     for it in items:
         result, stage = filter_item(it)
         if verbose:
@@ -65,9 +72,24 @@ def apply_filter(items: List[NewsItem], verbose: bool) -> Tuple[List[NewsItem], 
                 f"      • filter: stage={stage} relevant={result.is_relevant} "
                 f"score={result.confidence_score:.2f} reason={result.reasoning}"
             )
+        if collect_decisions:
+            decisions.append(
+                {
+                    "url": it.url,
+                    "title": it.title,
+                    "source_name": it.source_name,
+                    "publisher": it.publisher,
+                    "publication_date": fmt_dt(it.publication_date),
+                    "method": result.method,
+                    "stage": stage,
+                    "confidence": result.confidence_score,
+                    "reasoning": result.reasoning,
+                    "model_id": None if stage != "llm" else DEFAULT_LLM_MODEL_ID,
+                }
+            )
         if result.is_relevant:
             kept.append(it)
-    return kept, len(items), len(kept)
+    return kept, len(items), len(kept), decisions
 
 
 def main() -> None:
@@ -79,6 +101,16 @@ def main() -> None:
     group.add_argument("--sitemap-only", action="store_true", help="Only fetch Sitemap feeds")
     parser.add_argument("--verbose", action="store_true", help="Print extra details (URLs, counts)")
     parser.add_argument("--filter", action="store_true", help="Apply NFL relevance filtering to results")
+    parser.add_argument(
+        "--persist",
+        action="store_true",
+        help="DEMO: Print what would be stored to Supabase (no writes)",
+    )
+    parser.add_argument(
+        "--log-decisions",
+        action="store_true",
+        help="DEMO: Print structured filter decisions (no writes)",
+    )
     args = parser.parse_args()
 
     # Resolve config path (support running from repo root or scripts/)
@@ -99,6 +131,10 @@ def main() -> None:
 
     now = datetime.now(timezone.utc)
 
+    total_candidates = 0
+    total_kept = 0
+    all_decisions: List[Dict[str, Any]] = []
+
     if not args.sitemap_only:
         if not rss_feeds:
             print("No RSS feeds enabled in config.")
@@ -115,7 +151,13 @@ def main() -> None:
                 if args.filter:
                     if args.verbose:
                         print(f"Filtering RSS: {feed.name} ({len(per_feed)} items before)")
-                    per_feed, total, kept = apply_filter(per_feed, args.verbose)
+                    per_feed, total, kept, decisions = apply_filter(
+                        per_feed, args.verbose, collect_decisions=(args.log_decisions or args.persist)
+                    )
+                    total_candidates += total
+                    total_kept += kept
+                    if args.log_decisions or args.persist:
+                        all_decisions.extend(decisions)
                     if args.verbose:
                         print(f"Filtered RSS: {feed.name} kept {kept}/{total}")
                 print_items(f"RSS: {feed.name}", per_feed, args.show)
@@ -140,7 +182,13 @@ def main() -> None:
                     if args.filter:
                         if args.verbose:
                             print(f"Filtering Sitemap: {feed.name} ({len(items)} items before)")
-                        items, total, kept = apply_filter(items, args.verbose)
+                        items, total, kept, decisions = apply_filter(
+                            items, args.verbose, collect_decisions=(args.log_decisions or args.persist)
+                        )
+                        total_candidates += total
+                        total_kept += kept
+                        if args.log_decisions or args.persist:
+                            all_decisions.extend(decisions)
                         if args.verbose:
                             print(f"Filtered Sitemap: {feed.name} kept {kept}/{total}")
                     # Already sorted in implementation; sort again just in case
@@ -148,6 +196,23 @@ def main() -> None:
                     print_items(f"Sitemap: {feed.name}", items, args.show)
                 except Exception as e:
                     print(f"Failed to fetch sitemap for {feed.name}: {e}")
+
+    # Demo-only persistence/logging output (no database writes performed)
+    if args.persist or args.log_decisions:
+        print("\n--- DEMO persistence summary (dry-run; no DB writes) ---")
+        if args.filter:
+            print(f"Would persist {total_kept} filtered items out of {total_candidates} candidates")
+        else:
+            print("Filtering not enabled; persistence preview limited to fetched items shown above")
+        if args.log_decisions and all_decisions:
+            print(f"Would log {len(all_decisions)} filter decisions (method, stage, confidence, reasoning)")
+            if args.verbose:
+                # Print a sample of up to 5 decisions
+                for d in all_decisions[:5]:
+                    print(
+                        f"  • {d['source_name']} {d['title']!r} -> method={d['method']} stage={d['stage']} "
+                        f"score={d['confidence']:.2f} reason={d['reasoning']}"
+                    )
 
 
 if __name__ == "__main__":
