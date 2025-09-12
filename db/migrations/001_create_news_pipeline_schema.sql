@@ -63,3 +63,15 @@ create table if not exists filter_decisions (
 
 create index if not exists idx_filter_decisions_news_url on filter_decisions(news_url_id);
 create index if not exists idx_filter_decisions_method on filter_decisions(method);
+
+-- Normalized entity mapping table for reuse and analytics
+create table if not exists news_url_entities (
+    id uuid primary key default gen_random_uuid(),
+    news_url_id uuid not null references news_urls(id) on delete cascade,
+    entity_type text not null, -- 'team' | 'player' | 'topic'
+    entity_value text not null, -- team_abbr | player_id/name | topic label
+    created_at timestamptz default now()
+);
+
+create index if not exists idx_news_url_entities_url on news_url_entities(news_url_id);
+create index if not exists idx_news_url_entities_type_value on news_url_entities(entity_type, entity_value);

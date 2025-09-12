@@ -16,6 +16,12 @@ from ..logging import AuditLogger
 from ..storage import StorageManager
 from ..processors.rss import RSSProcessor
 from ..processors.sitemap import SitemapProcessor
+from ..entities import EntitiesExtractor
+try:
+    # Prefer centralized builder that pulls from Supabase players/teams
+    from src.core.data.entity_linking import build_entity_dictionary
+except Exception:  # pragma: no cover
+    build_entity_dictionary = None  # type: ignore[assignment]
 
 
 @dataclass
@@ -42,9 +48,23 @@ class NFLNewsPipeline:
         self.storage = storage
         self.audit = audit
 
+        # Lazily initialized components
         self.cm: Optional[ConfigManager] = None
         self.rss: Optional[RSSProcessor] = None
         self.sitemap: Optional[SitemapProcessor] = None
+
+        # Build a comprehensive entity dictionary if possible (Supabase); fall back to lightweight
+        entity_dict = None
+        try:
+            if os.environ.get("NEWS_PIPELINE_DISABLE_ENTITY_DICT", "").lower() not in {"1", "true", "yes"}:
+                if build_entity_dictionary is not None:
+                    # Best-effort; handle environments without DB access
+                    entity_dict = build_entity_dictionary()
+        except Exception:
+            entity_dict = None
+
+        # Entities extractor: uses dictionary when available, else alias/topic-only
+        self.extractor = EntitiesExtractor(entity_dict=entity_dict)
 
     # -------- Public API --------
     def run(self) -> PipelineSummary:
@@ -227,6 +247,24 @@ class NFLNewsPipeline:
             for i, it in enumerate(items):
                 res = llm_results.get(i, rb_results[i])
                 if res.is_relevant:
+                    # Categorize entities/topics
+                    ents = self.extractor.extract(it)
+                    entities_list: List[str] = []
+                    # Combine players and teams into a flat list
+                    if ents.players:
+                        entities_list.extend(sorted(ents.players))
+                    if ents.teams:
+                        entities_list.extend(sorted(ents.teams))
+                    categories_list: List[str] = sorted(ents.topics) if ents.topics else []
+
+                    # Enrich raw_metadata with structured entity tags for storage layer
+                    enriched_meta = dict(it.raw_metadata or {})
+                    enriched_meta["entity_tags"] = {
+                        "players": sorted(ents.players),
+                        "teams": sorted(ents.teams),
+                        "topics": sorted(ents.topics),
+                    }
+
                     kept.append(
                         ProcessedNewsItem(
                             url=it.url,
@@ -235,10 +273,12 @@ class NFLNewsPipeline:
                             source_name=it.source_name,
                             publisher=it.publisher,
                             description=it.description,
-                            raw_metadata=it.raw_metadata,
+                            raw_metadata=enriched_meta,
                             relevance_score=res.confidence_score,
                             filter_method=getattr(res, "method", "rule"),
                             filter_reasoning=getattr(res, "reasoning", ""),
+                            entities=entities_list,
+                            categories=categories_list,
                         )
                     )
 
