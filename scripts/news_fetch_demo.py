@@ -33,6 +33,8 @@ from src.nfl_news_pipeline.processors.rss import RSSProcessor
 from src.nfl_news_pipeline.processors.sitemap import SitemapProcessor
 from src.nfl_news_pipeline.filters.relevance import filter_item
 
+DEFAULT_LLM_MODEL_ID = "default-model"
+
 
 def fmt_dt(dt: datetime | None) -> str:
     if not dt:
@@ -82,7 +84,7 @@ def apply_filter(
                     "stage": stage,
                     "confidence": result.confidence_score,
                     "reasoning": result.reasoning,
-                    "model_id": None if stage != "llm" else "(default-model)",
+                    "model_id": None if stage != "llm" else DEFAULT_LLM_MODEL_ID,
                 }
             )
         if result.is_relevant:
