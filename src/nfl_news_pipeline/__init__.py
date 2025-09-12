@@ -12,6 +12,7 @@ from .models import (
 from .filters import RuleBasedFilter, LLMFilter
 from .storage import StorageManager, StorageResult
 from .logging import AuditLogger
+from .orchestrator import NFLNewsPipeline, PipelineSummary
 
 __all__ = [
 	"NewsItem",
@@ -26,4 +27,6 @@ __all__ = [
 	"StorageManager",
 	"StorageResult",
 	"AuditLogger",
+	"NFLNewsPipeline",
+	"PipelineSummary",
 ]

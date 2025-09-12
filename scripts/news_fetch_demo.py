@@ -34,6 +34,9 @@ from src.nfl_news_pipeline.processors.rss import RSSProcessor
 from src.nfl_news_pipeline.processors.sitemap import SitemapProcessor
 from src.nfl_news_pipeline.filters.relevance import filter_item
 from src.nfl_news_pipeline.logging import AuditLogger
+from src.nfl_news_pipeline.orchestrator import NFLNewsPipeline
+from src.nfl_news_pipeline.storage import StorageResult
+from src.nfl_news_pipeline.filters.llm import LLMFilter
 
 DEFAULT_LLM_MODEL_ID = "default-model"
 
@@ -60,6 +63,7 @@ def apply_filter(
     items: List[NewsItem],
     verbose: bool,
     collect_decisions: bool = False,
+    allow_llm: bool | None = None,
 ) -> Tuple[List[NewsItem], int, int, List[Dict[str, Any]]]:
     """Filter items for NFL relevance using rule-based first, then LLM if ambiguous.
 
@@ -68,7 +72,7 @@ def apply_filter(
     kept: List[NewsItem] = []
     decisions: List[Dict[str, Any]] = []
     for it in items:
-        result, stage = filter_item(it)
+        result, stage = filter_item(it, allow_llm=allow_llm)
         if verbose:
             print(
                 f"      • filter: stage={stage} relevant={result.is_relevant} "
@@ -112,6 +116,22 @@ def main() -> None:
         "--log-decisions",
         action="store_true",
         help="DEMO: Print structured filter decisions (no writes)",
+    )
+    parser.add_argument(
+        "--pipeline",
+        action="store_true",
+        help="Run end-to-end pipeline (dry-run; uses orchestrator)",
+    )
+    parser.add_argument(
+        "--disable-llm",
+        action="store_true",
+        help="Disable LLM usage (rule-based only)",
+    )
+    parser.add_argument(
+        "--llm-timeout",
+        type=float,
+        default=None,
+        help="Timeout in seconds for LLM calls (overrides OPENAI_TIMEOUT)",
     )
     args = parser.parse_args()
 
@@ -168,6 +188,62 @@ def main() -> None:
     errors_total = 0
     run_start = time.time()
 
+    # Apply LLM runtime controls
+    allow_llm = not args.disable_llm
+    if args.llm_timeout is not None:
+        # Set env var to let LLMFilter pick it up
+        import os
+        os.environ["OPENAI_TIMEOUT"] = str(args.llm_timeout)
+    if args.verbose:
+        import os
+        os.environ["NEWS_PIPELINE_DEBUG"] = "1"
+        print(f"LLM enabled={allow_llm} timeout={os.environ.get('OPENAI_TIMEOUT', 'default')}s")
+
+    # Pipeline mode: run orchestrator end-to-end with a dry-run storage
+    if args.pipeline:
+        class _DemoStorage:
+            def __init__(self) -> None:
+                self.rows: List[Dict[str, Any]] = []
+                self.watermarks: Dict[str, datetime] = {}
+
+            def check_duplicate_urls(self, urls):
+                return {}
+
+            def store_news_items(self, items):
+                # Accumulate and return a StorageResult-like object
+                self.rows.extend(items)
+                ids = {it.url: f"demo_{i}" for i, it in enumerate(items)}
+                return StorageResult(inserted_count=len(items), updated_count=0, errors_count=0, ids_by_url=ids)
+
+            def get_watermark(self, source_name: str):
+                return self.watermarks.get(source_name)
+
+            def update_watermark(self, source_name: str, *, last_processed_date: datetime, **kwargs):
+                self.watermarks[source_name] = last_processed_date
+                return True
+
+        # Set env flag so pipeline's filter_item disables LLM if requested
+        import os as _os
+        if not allow_llm:
+            _os.environ["NEWS_PIPELINE_DISABLE_LLM"] = "1"
+
+        demo_storage = _DemoStorage()
+        pipeline = NFLNewsPipeline(str(cfg_path), storage=demo_storage, audit=audit)
+        summary = pipeline.run()
+
+        # Print summary and a tiny preview of would-be stored items
+        print("\n--- PIPELINE (dry-run) summary ---")
+        print(
+            f"Sources={summary.sources} fetched={summary.fetched_items} kept={summary.filtered_in} "
+            f"inserted={summary.inserted} updated={summary.updated} errors={summary.errors} store_errors={summary.store_errors} "
+            f"time={summary.duration_ms}ms"
+        )
+        if args.persist and demo_storage.rows:
+            print(f"Would store {len(demo_storage.rows)} items. Preview:")
+            for it in demo_storage.rows[:5]:
+                print(f"  • {it.title} -> {it.url}")
+        return
+
     if not args.sitemap_only:
         if not rss_feeds:
             print("No RSS feeds enabled in config.")
@@ -187,7 +263,10 @@ def main() -> None:
                     if args.verbose:
                         print(f"Filtering RSS: {feed.name} ({len(per_feed)} items before)")
                     per_feed, total, kept, decisions = apply_filter(
-                        per_feed, args.verbose, collect_decisions=(args.log_decisions or args.persist)
+                        per_feed,
+                        args.verbose,
+                        collect_decisions=(args.log_decisions or args.persist),
+                        allow_llm=allow_llm,
                     )
                     total_candidates += total
                     total_kept += kept
@@ -222,7 +301,10 @@ def main() -> None:
                         if args.verbose:
                             print(f"Filtering Sitemap: {feed.name} ({len(items)} items before)")
                         items, total, kept, decisions = apply_filter(
-                            items, args.verbose, collect_decisions=(args.log_decisions or args.persist)
+                            items,
+                            args.verbose,
+                            collect_decisions=(args.log_decisions or args.persist),
+                            allow_llm=allow_llm,
                         )
                         total_candidates += total
                         total_kept += kept
