@@ -25,6 +25,8 @@ class StorageManager:
     - For migrations, see the SQL files under db/migrations/.
     """
 
+    BATCH_SIZE = 500
+
     def __init__(self, client: Any):
         self.client = client
         self.table_news = os.getenv("NEWS_URLS_TABLE", "news_urls")
@@ -146,9 +148,8 @@ class StorageManager:
         # Refresh existing mappings for these URLs to avoid duplicates on updates
         id_list = [v for k, v in ids_by_url.items() if k]
         try:
-            BATCH = 500
-            for i in range(0, len(id_list), BATCH):
-                chunk = id_list[i:i+BATCH]
+            for i in range(0, len(id_list), self.BATCH_SIZE):
+                chunk = id_list[i:i+self.BATCH_SIZE]
                 self.client.table(self.table_news_entities).delete().in_("news_url_id", chunk).execute()
         except Exception:
             # Best effort; continue with inserts
@@ -177,7 +178,9 @@ class StorageManager:
             except Exception:
                 players, teams = [], []
 
-            # Fallback: if flat entities present, best-effort partition by simple heuristic
+            # Prefer categorization from entity_tags in raw_metadata if available.
+            # Fallback: if flat entities present, best-effort partition by simple heuristic:
+            # Entities that are all uppercase and 2-4 characters are considered teams, others as players.
             if not players and not teams and it.entities:
                 for e in it.entities:
                     if isinstance(e, str) and e.isupper() and 2 <= len(e) <= 4:
@@ -199,12 +202,10 @@ class StorageManager:
                         "entity_type": "player",
                         "entity_value": str(p),
                     })
-
         if rows:
             # Insert in batches to avoid large payloads
-            BATCH = 500
-            for i in range(0, len(rows), BATCH):
-                chunk = rows[i:i+BATCH]
+            for i in range(0, len(rows), self.BATCH_SIZE):
+                chunk = rows[i:i+self.BATCH_SIZE]
                 try:
                     self.client.table(self.table_news_entities).insert(chunk).execute()
                 except Exception:
