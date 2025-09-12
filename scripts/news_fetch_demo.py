@@ -37,6 +37,7 @@ from src.nfl_news_pipeline.logging import AuditLogger
 from src.nfl_news_pipeline.orchestrator import NFLNewsPipeline
 from src.nfl_news_pipeline.storage import StorageResult
 from src.nfl_news_pipeline.filters.llm import LLMFilter
+from src.nfl_news_pipeline.entities import EntitiesExtractor
 
 DEFAULT_LLM_MODEL_ID = "default-model"
 
@@ -57,6 +58,24 @@ def print_items(title: str, items: List[NewsItem], show: int) -> None:
         print(f"    URL: {item.url}")
         if item.source_name:
             print(f"    Source: {item.source_name} ({item.publisher or '-'})")
+        # Lightweight categorization preview
+        try:
+            extractor = EntitiesExtractor()
+            ents = extractor.extract(item)
+            cats = sorted(ents.topics)
+            teams = sorted(ents.teams)
+            players = sorted(ents.players)
+            if cats or teams or players:
+                line = []
+                if cats:
+                    line.append(f"topics={cats}")
+                if teams:
+                    line.append(f"teams={teams}")
+                if players:
+                    line.append(f"players={players}")
+                print("    Categories: " + "; ".join(line))
+        except Exception:
+            pass
 
 
 def apply_filter(
@@ -241,7 +260,25 @@ def main() -> None:
         if args.persist and demo_storage.rows:
             print(f"Would store {len(demo_storage.rows)} items. Preview:")
             for it in demo_storage.rows[:5]:
-                print(f"  • {it.title} -> {it.url}")
+                try:
+                    cats = getattr(it, "categories", []) or []
+                    ents = getattr(it, "entities", []) or []
+                    score = getattr(it, "relevance_score", None)
+                    method = getattr(it, "filter_method", None)
+                    print(f"  • {it.title} -> {it.url}")
+                    meta_parts = []
+                    if score is not None:
+                        meta_parts.append(f"score={score:.2f}")
+                    if method:
+                        meta_parts.append(f"method={method}")
+                    if meta_parts:
+                        print("    (" + ", ".join(meta_parts) + ")")
+                    if cats:
+                        print(f"    categories: {cats}")
+                    if ents:
+                        print(f"    entities: {ents}")
+                except Exception:
+                    print(f"  • {getattr(it, 'title', '-') } -> {getattr(it, 'url', '-')}")
         return
 
     if not args.sitemap_only:

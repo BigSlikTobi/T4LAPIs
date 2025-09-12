@@ -262,28 +262,37 @@ class PersonalizedSummaryGenerator:
             ).eq("player_id", entity_id).execute()
             
             if hasattr(response, 'data') and response.data:
-                # Filter for current season and recent weeks
-                recent_stats = []
+                # Parse all entries, grouping by season
+                by_season = {}
                 for stat in response.data:
                     try:
-                        # Parse game_id to extract season and week
-                        game_parts = stat['game_id'].split('_')
-                        if len(game_parts) >= 2:
-                            season = int(game_parts[0])
-                            week = int(game_parts[1])
-                            
-                            # Only include current season stats from recent weeks
-                            if season == current_season:
-                                recent_stats.append(stat)
+                        parts = stat.get('game_id', '').split('_')
+                        if len(parts) >= 2:
+                            season = int(parts[0])
+                            by_season.setdefault(season, []).append(stat)
                     except (ValueError, IndexError):
                         continue
-                
-                # Sort by week descending and limit to last 3 weeks
-                recent_stats.sort(key=lambda x: int(x['game_id'].split('_')[1]), reverse=True)
-                recent_stats = recent_stats[:3]
-                
-                self.logger.debug(f"Found {len(recent_stats)} recent stats for player {entity_id}")
-                return recent_stats
+
+                # Prefer current season; if not available, fallback to latest available season
+                season_stats = by_season.get(current_season)
+                if not season_stats and by_season:
+                    season_stats = by_season[max(by_season.keys())]
+
+                if not season_stats:
+                    return []
+
+                # Sort by week desc and take last 3
+                def _wk(s: Dict[str, Any]) -> int:
+                    try:
+                        return int(s.get('game_id', '0_0').split('_')[1])
+                    except Exception:
+                        return -1
+
+                season_stats.sort(key=_wk, reverse=True)
+                season_stats = season_stats[:3]
+
+                self.logger.debug(f"Found {len(season_stats)} recent stats for player {entity_id}")
+                return season_stats
             
             return []
             

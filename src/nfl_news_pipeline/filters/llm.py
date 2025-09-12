@@ -68,8 +68,11 @@ class LLMFilter:
                 {"role": "user", "content": prompt},
             ]
             # OpenAI Python v1 style
-            # Pass timeout explicitly to guard against long hangs
-            resp = client.chat.completions.create(model=self.model, messages=msg, timeout=self.timeout_s)
+            # Try with timeout; if client doesn't accept it (e.g., tests' dummy client), retry without
+            try:
+                resp = client.chat.completions.create(model=self.model, messages=msg, timeout=self.timeout_s)
+            except TypeError:
+                resp = client.chat.completions.create(model=self.model, messages=msg)
             content = resp.choices[0].message.content.strip()
             # Very permissive parse; expect a JSON-like string
             import json

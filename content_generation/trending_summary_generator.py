@@ -276,27 +276,35 @@ class TrendingSummaryGenerator:
             ).eq("player_id", entity_id).execute()
             
             if hasattr(response, 'data') and response.data:
-                # Filter for current season and recent weeks
-                recent_stats = []
+                # Group by season
+                by_season = {}
                 for stat in response.data:
                     try:
-                        # Parse game_id to extract season: {season}_{week}_{team1}_{team2}
-                        game_parts = stat['game_id'].split('_')
-                        if len(game_parts) >= 2:
-                            season = int(game_parts[0])
-                            
-                            # Only include current season stats
-                            if season == current_season:
-                                recent_stats.append(stat)
+                        parts = stat.get('game_id', '').split('_')
+                        if len(parts) >= 2:
+                            season = int(parts[0])
+                            by_season.setdefault(season, []).append(stat)
                     except (ValueError, IndexError):
                         continue
-                
-                # Sort by week descending and limit to last 5 weeks for trending context
-                recent_stats.sort(key=lambda x: int(x['game_id'].split('_')[1]), reverse=True)
-                recent_stats = recent_stats[:5]
-                
-                self.logger.debug(f"Found {len(recent_stats)} recent stats for player {entity_id}")
-                return recent_stats
+
+                season_stats = by_season.get(current_season)
+                if not season_stats and by_season:
+                    season_stats = by_season[max(by_season.keys())]
+
+                if not season_stats:
+                    return []
+
+                def _wk(s: Dict[str, Any]) -> int:
+                    try:
+                        return int(s.get('game_id', '0_0').split('_')[1])
+                    except Exception:
+                        return -1
+
+                season_stats.sort(key=_wk, reverse=True)
+                season_stats = season_stats[:5]
+
+                self.logger.debug(f"Found {len(season_stats)} recent stats for player {entity_id}")
+                return season_stats
             
             return []
             

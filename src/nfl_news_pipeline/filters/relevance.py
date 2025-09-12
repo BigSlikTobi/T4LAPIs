@@ -32,8 +32,8 @@ def filter_item(
 
     rb = rule.filter(item)
 
-    # Only gate items that would otherwise be included
-    if not rb.is_relevant:
+    # If clearly not relevant, short-circuit; ambiguous or positive go to LLM as quality gate
+    if rb.confidence_score < AMBIGUOUS_LOW:
         return rb, "rule"
 
     # Hard timeout for LLM call; default to OPENAI_TIMEOUT or 10s, override via NEWS_PIPELINE_LLM_HARD_TIMEOUT

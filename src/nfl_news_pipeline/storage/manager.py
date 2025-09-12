@@ -31,6 +31,9 @@ class StorageManager:
         self.table_watermarks = os.getenv("SOURCE_WATERMARKS_TABLE", "source_watermarks")
         self.table_audit = os.getenv("PIPELINE_AUDIT_LOG_TABLE", "pipeline_audit_log")
         self.table_filter_decisions = os.getenv("FILTER_DECISIONS_TABLE", "filter_decisions")
+        self.table_news_entities = os.getenv("NEWS_URL_ENTITIES_TABLE", "news_url_entities")
+        # Back-compat flag: also write JSONB entities column (default off per normalization)
+        self.write_entities_jsonb = os.getenv("WRITE_ENTITIES_JSONB", "0").lower() not in {"0", "false", "no"}
 
     # ------------- Dedup helpers -------------
     def check_duplicate_urls(self, urls: Iterable[str]) -> Dict[str, Dict[str, Any]]:
@@ -108,10 +111,17 @@ class StorageManager:
             except Exception:
                 pass
 
+        # Populate normalized entity table for all items
+        try:
+            self._store_entities_normalized(items, ids_by_url)
+        except Exception:
+            # Do not fail the main store on entity mapping issues
+            pass
+
         return StorageResult(inserted, updated, errors, ids_by_url)
 
     def _item_to_row(self, it: ProcessedNewsItem) -> Dict[str, Any]:
-        return {
+        row = {
             "url": it.url,
             "title": it.title,
             "description": it.description,
@@ -121,10 +131,85 @@ class StorageManager:
             "relevance_score": float(it.relevance_score),
             "filter_method": it.filter_method,
             "filter_reasoning": it.filter_reasoning,
-            "entities": it.entities or [],
+            # Keep JSONB/write optional for back-compat
+            "entities": (it.entities or []) if self.write_entities_jsonb else None,
             "categories": it.categories or [],
             "raw_metadata": it.raw_metadata or {},
         }
+        if not self.write_entities_jsonb:
+            row.pop("entities", None)
+        return row
+
+    def _store_entities_normalized(self, items: List[ProcessedNewsItem], ids_by_url: Dict[str, str]) -> None:
+        if not items or not ids_by_url:
+            return
+        # Refresh existing mappings for these URLs to avoid duplicates on updates
+        id_list = [v for k, v in ids_by_url.items() if k]
+        try:
+            BATCH = 500
+            for i in range(0, len(id_list), BATCH):
+                chunk = id_list[i:i+BATCH]
+                self.client.table(self.table_news_entities).delete().in_("news_url_id", chunk).execute()
+        except Exception:
+            # Best effort; continue with inserts
+            pass
+        # Build rows for teams, players, and topics
+        rows: List[Dict[str, Any]] = []
+        for it in items:
+            url_id = ids_by_url.get(it.url)
+            if not url_id:
+                continue
+            # Topics from categories
+            for topic in (it.categories or []):
+                if topic:
+                    rows.append({
+                        "news_url_id": url_id,
+                        "entity_type": "topic",
+                        "entity_value": str(topic),
+                    })
+            # Teams/players from raw_metadata.entity_tags (preferred) else flat entities
+            players: List[str] = []
+            teams: List[str] = []
+            try:
+                tags = (it.raw_metadata or {}).get("entity_tags") or {}
+                players = list(tags.get("players", []) or [])
+                teams = list(tags.get("teams", []) or [])
+            except Exception:
+                players, teams = [], []
+
+            # Fallback: if flat entities present, best-effort partition by simple heuristic
+            if not players and not teams and it.entities:
+                for e in it.entities:
+                    if isinstance(e, str) and e.isupper() and 2 <= len(e) <= 4:
+                        teams.append(e)
+                    else:
+                        players.append(str(e))
+
+            for t in teams:
+                if t:
+                    rows.append({
+                        "news_url_id": url_id,
+                        "entity_type": "team",
+                        "entity_value": str(t),
+                    })
+            for p in players:
+                if p:
+                    rows.append({
+                        "news_url_id": url_id,
+                        "entity_type": "player",
+                        "entity_value": str(p),
+                    })
+
+        if rows:
+            # Insert in batches to avoid large payloads
+            BATCH = 500
+            for i in range(0, len(rows), BATCH):
+                chunk = rows[i:i+BATCH]
+                try:
+                    self.client.table(self.table_news_entities).insert(chunk).execute()
+                except Exception:
+                    # Best effort: continue with next chunk
+                    continue
 
     # ------------- Filter decision logging -------------
     def log_filter_decision(
