@@ -3,8 +3,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from typing import Optional
+import hashlib
+import json
+import re
 
 from ..models import NewsItem, FilterResult
+from ..utils.cache import LLMResponseCache
 
 
 LLM_SYSTEM_PROMPT = (
@@ -39,6 +43,13 @@ class LLMFilter:
     client: Optional[object] = None
     # Global timeout for LLM calls (seconds); can be overridden via OPENAI_TIMEOUT env
     timeout_s: float = float(os.environ.get("OPENAI_TIMEOUT", "10"))
+    # Caching
+    cache_ttl_s: int = int(os.environ.get("NEWS_PIPELINE_LLM_CACHE_TTL", "86400"))
+    cache_path: Optional[str] = os.environ.get("NEWS_PIPELINE_LLM_CACHE_PATH") or None
+    cache_enabled: bool = os.environ.get("NEWS_PIPELINE_LLM_CACHE", "1").lower() not in {"0", "false", "no"}
+
+    def __post_init__(self):
+        self._cache = LLMResponseCache(ttl_s=self.cache_ttl_s, sqlite_path=self.cache_path) if self.cache_enabled else None
 
     def _get_client(self):
         return self.client or _default_openai_client(self.timeout_s)
@@ -49,6 +60,27 @@ class LLMFilter:
             f"Description: {item.description or '-'}\n"
             f"URL: {item.url}\n"
         )
+        # Cache key based on model + compact JSON of inputs
+        cache_key = None
+        if self._cache is not None:
+            try:
+                payload = {
+                    "m": self.model,
+                    "t": item.title,
+                    "d": item.description or "",
+                    "u": item.url,
+                }
+                cache_key = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+                cached = self._cache.get(cache_key)
+                if cached is not None:
+                    return FilterResult(
+                        is_relevant=bool(cached.get("is_relevant", False)),
+                        confidence_score=float(cached.get("confidence", 0.0)),
+                        reasoning=str(cached.get("reason", "cache")),
+                        method="llm-cache",
+                    )
+            except Exception:
+                cache_key = None
         client = self._get_client()
         if client is None:
             # Fallback heuristic if no client (keeps tests deterministic)
@@ -75,14 +107,19 @@ class LLMFilter:
                 resp = client.chat.completions.create(model=self.model, messages=msg)
             content = resp.choices[0].message.content.strip()
             # Very permissive parse; expect a JSON-like string
-            import json
-            import re
+            # Note: use module-level json import to avoid shadowing earlier usage
 
             m = re.search(r"\{.*\}", content, re.S)
             data = json.loads(m.group(0)) if m else {}
             is_rel = bool(data.get("is_relevant", False))
             conf = float(data.get("confidence", 0.0))
             reason = str(data.get("reason", "")) or "llm"
+            # Write-through cache
+            if self._cache is not None and cache_key:
+                try:
+                    self._cache.set(cache_key, {"is_relevant": is_rel, "confidence": conf, "reason": reason})
+                except Exception:
+                    pass
             return FilterResult(
                 is_relevant=is_rel,
                 confidence_score=max(0.0, min(conf, 1.0)),

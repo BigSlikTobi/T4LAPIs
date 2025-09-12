@@ -83,6 +83,10 @@ class NFLNewsPipeline:
         inserted_total = 0
         updated_total = 0
         store_errors_total = 0
+        # Metrics
+        total_llm_validations = 0
+        total_llm_cache_hits = 0
+        total_llm_cache_misses = 0
 
         debug = os.environ.get("NEWS_PIPELINE_DEBUG", "").lower() in {"1", "true", "yes"}
         if debug:
@@ -92,12 +96,15 @@ class NFLNewsPipeline:
             if debug:
                 print(f"[pipeline] source={feed.name} type={feed.type} -> start")
             try:
-                f_count, k_count, ins, upd, serr = self._process_source(feed)
+                f_count, k_count, ins, upd, serr, m = self._process_source(feed)
                 fetched_total += f_count
                 kept_total += k_count
                 inserted_total += ins
                 updated_total += upd
                 store_errors_total += serr
+                total_llm_validations += m.get("llm_validations", 0)
+                total_llm_cache_hits += m.get("llm_cache_hits", 0)
+                total_llm_cache_misses += m.get("llm_cache_misses", 0)
                 if debug:
                     print(
                         f"[pipeline] source={feed.name} -> fetched={f_count} kept={k_count} inserted={ins} updated={upd} store_errors={serr}"
@@ -118,6 +125,20 @@ class NFLNewsPipeline:
                 errors=errors_total,
                 duration_ms=duration_ms,
             )
+            # Emit metrics snapshot
+            try:
+                self.audit.log_event(
+                    "metrics",
+                    message="llm_cache",
+                    data={
+                        "validations": total_llm_validations,
+                        "cache_hits": total_llm_cache_hits,
+                        "cache_misses": total_llm_cache_misses,
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+            except Exception:
+                pass
         if debug:
             print(
                 f"[pipeline] done: sources={len(sources)} fetched={fetched_total} kept={kept_total} errors={errors_total} time={duration_ms}ms"
@@ -135,7 +156,7 @@ class NFLNewsPipeline:
         )
 
     # -------- Internals --------
-    def _process_source(self, feed: FeedConfig) -> Tuple[int, int, int, int, int]:
+    def _process_source(self, feed: FeedConfig) -> Tuple[int, int, int, int, int, Dict[str, int]]:
         now = datetime.now(timezone.utc)
         items: List[NewsItem] = []
         if self.audit:
@@ -167,6 +188,7 @@ class NFLNewsPipeline:
 
         # Filter relevance
         kept: List[ProcessedNewsItem] = []
+        metrics: Dict[str, int] = {"llm_validations": 0, "llm_cache_hits": 0, "llm_cache_misses": 0}
         if items:
             # 1) Rule-based pass for all items
             rule = RuleBasedFilter()
@@ -218,6 +240,7 @@ class NFLNewsPipeline:
                     )
                 ex = ThreadPoolExecutor(max_workers=max(1, workers))
                 try:
+                    # Warm-up: determine cache status by running .filter and checking method in result
                     future_to_idx = {ex.submit(llm.filter, items[i]): i for i in candidates}
                     completed = set()
                     try:
@@ -225,7 +248,13 @@ class NFLNewsPipeline:
                             completed.add(fut)
                             idx = future_to_idx[fut]
                             try:
-                                llm_results[idx] = fut.result()
+                                r = fut.result()
+                                llm_results[idx] = r
+                                metrics["llm_validations"] += 1
+                                if getattr(r, "method", "") == "llm-cache":
+                                    metrics["llm_cache_hits"] += 1
+                                else:
+                                    metrics["llm_cache_misses"] += 1
                             except Exception:
                                 pass
                             if time.time() - start >= budget_s:
@@ -317,8 +346,7 @@ class NFLNewsPipeline:
             except Exception as e:  # pragma: no cover
                 if self.audit:
                     self.audit.log_error(context=f"watermark {feed.name}", exc=e)
-
-        return len(items), len(kept), inserted, updated, store_errors
+        return len(items), len(kept), inserted, updated, store_errors, metrics
 
     @staticmethod
     def _retry(fn, attempts: int = 2, backoff_ms: int = 100):

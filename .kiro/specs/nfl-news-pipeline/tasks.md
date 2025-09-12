@@ -153,28 +153,28 @@
     - _Requirements: 1.1, 1.2, 2.1, 2.2, 3.1, 4.1_
 
 -
-  9. [ ] Implement entity extraction and categorization
-  - [ ] 9.1 Add entity extraction from news metadata
+  9. [x] Implement entity extraction and categorization
+  - [x] 9.1 Add entity extraction from news metadata
     - Create entity extraction logic for NFL teams, players, and topics
     - Implement entity normalization and linking to existing databases
     - Add category tagging based on extracted entities and content analysis
     - _Requirements: 7.1, 7.2, 7.4, 7.5_
 
-  - [ ] 9.2 Create entity processing unit tests
+  - [x] 9.2 Create entity processing unit tests
     - Write tests for entity extraction accuracy with known content
     - Test entity normalization and database linking
     - Validate category tagging and relationship detection
     - _Requirements: 7.1, 7.2, 7.6_
 
 -
-  10. [ ] Add performance optimization and monitoring
-  - [ ] 10.1 Implement caching and performance optimizations
+  10. [x] Add performance optimization and monitoring
+  - [x] 10.1 Implement caching and performance optimizations
     - Add LLM response caching to reduce API costs and latency
     - Implement connection pooling for database operations
     - Add memory management for large feed processing
     - _Requirements: 6.1, 6.2_
 
-  - [ ] 10.2 Create performance monitoring and metrics
+  - [x] 10.2 Create performance monitoring and metrics
     - Implement metrics collection for processing times and success rates
     - Add performance reporting and bottleneck identification
     - Create monitoring dashboards for pipeline health
