@@ -198,6 +198,21 @@ The system provides access to **24 different NFL datasets** with **841+ columns*
 - **Advanced Stats**: Play-by-Play, Next Gen Stats, PFF Data
 - **Personnel Data**: Draft picks, Combine results, Contracts, Depth charts
 - **Specialized Data**: Injuries, Officials, Betting lines, Formation data
+
+## 🧰 NFL News Pipeline CLI
+
+Run validations and status:
+
+- Validate config: `python scripts/pipeline_cli.py validate --config feeds.yaml`
+- Status/health: `python scripts/pipeline_cli.py status --config feeds.yaml`
+
+Run the pipeline:
+
+- Dry-run (no DB writes): `python scripts/pipeline_cli.py run --config feeds.yaml --dry-run`
+- Single source: `python scripts/pipeline_cli.py run --config feeds.yaml --source espn`
+- Disable LLM: `python scripts/pipeline_cli.py run --disable-llm`
+
+The pipeline respects SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY, and cache flags (NEWS_PIPELINE_LLM_CACHE*).
 - **Entity Linking**: LLM-enhanced extraction and linking of players and teams from text
 
 For detailed information about available datasets, see: [📋 NFL Data Reference](docs/NFL_Data_Reference.md)
