@@ -14,7 +14,7 @@ LLM_SYSTEM_PROMPT = (
 )
 
 
-def _default_openai_client():
+def _default_openai_client(timeout_s: float | None = None):
     """Create an OpenAI client only if an API key is configured; else None.
 
     This prevents crashes when running the demo without credentials and allows
@@ -25,6 +25,9 @@ def _default_openai_client():
         return None
     try:
         from openai import OpenAI  # type: ignore
+        # Respect optional timeout (defaults applied by caller)
+        if timeout_s is not None:
+            return OpenAI(api_key=api_key, timeout=timeout_s)
         return OpenAI(api_key=api_key)
     except Exception:  # pragma: no cover
         return None
@@ -34,9 +37,11 @@ def _default_openai_client():
 class LLMFilter:
     model: str = os.environ.get("OPENAI_MODEL", "gpt-5-nano")
     client: Optional[object] = None
+    # Global timeout for LLM calls (seconds); can be overridden via OPENAI_TIMEOUT env
+    timeout_s: float = float(os.environ.get("OPENAI_TIMEOUT", "10"))
 
     def _get_client(self):
-        return self.client or _default_openai_client()
+        return self.client or _default_openai_client(self.timeout_s)
 
     def filter(self, item: NewsItem) -> FilterResult:
         prompt = (
@@ -63,7 +68,8 @@ class LLMFilter:
                 {"role": "user", "content": prompt},
             ]
             # OpenAI Python v1 style
-            resp = client.chat.completions.create(model=self.model, messages=msg)
+            # Pass timeout explicitly to guard against long hangs
+            resp = client.chat.completions.create(model=self.model, messages=msg, timeout=self.timeout_s)
             content = resp.choices[0].message.content.strip()
             # Very permissive parse; expect a JSON-like string
             import json
