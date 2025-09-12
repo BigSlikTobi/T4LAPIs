@@ -39,6 +39,8 @@ class EntitiesExtractor:
         """
         self.entity_dict = entity_dict or {}
         self._entity_dict_lower = {k.lower(): v for k, v in self.entity_dict.items()}
+        # Build a last-name index for player disambiguation: last_name -> [(full_name, canonical_id)]
+        self._last_name_index: Dict[str, List[Tuple[str, str]]] = self._build_last_name_index(self.entity_dict)
 
         self.llm = llm
         if llm_enabled is None:
@@ -141,10 +143,52 @@ class EntitiesExtractor:
                     key = nm.strip().lower()
                     if not key:
                         continue
+                    # 1) Direct full-name match in dictionary
                     if key in self._entity_dict_lower:
                         canonical = self._entity_dict_lower[key]
                         if not self._is_team_abbr(canonical):
                             ents.players.add(canonical)
+                        continue
+                    # 2) Single-token name: treat as last name and disambiguate
+                    if " " not in key and key.isalpha() and len(key) >= 3:
+                        candidates = self._last_name_index.get(key, [])
+                        if not candidates:
+                            continue
+                        if len(candidates) == 1:
+                            ents.players.add(candidates[0][1])
+                        else:
+                            # Ask LLM to disambiguate among candidates using context
+                            try:
+                                # Prefer an explicit API if provided by the LLM client
+                                if hasattr(self.llm, "disambiguate_player"):
+                                    chosen = getattr(self.llm, "disambiguate_player")(
+                                        last_name=nm,
+                                        article_text=text,
+                                        candidates=[{"name": n, "id": cid} for n, cid in candidates],
+                                    )
+                                    # chosen can be an ID or a name; resolve to canonical id
+                                    canonical: Optional[str] = None
+                                    if isinstance(chosen, str) and chosen:
+                                        # If looks like id (not alpha-only or contains digits), accept
+                                        if any(ch.isdigit() for ch in chosen):
+                                            canonical = chosen
+                                        else:
+                                            canonical = self._entity_dict_lower.get(chosen.strip().lower())
+                                    if canonical and not self._is_team_abbr(canonical):
+                                        ents.players.add(canonical)
+                                else:
+                                    # Fallback heuristic: choose the candidate whose first name appears in text
+                                    picked = None
+                                    for full, cid in candidates:
+                                        fname = full.split(" ", 1)[0]
+                                        if re.search(rf"\b{re.escape(fname)}\b", text, re.I):
+                                            picked = cid
+                                            break
+                                    if picked:
+                                        ents.players.add(picked)
+                            except Exception:
+                                # Ignore disambiguation errors
+                                pass
 
                 for nm in tm_names:
                     key = nm.strip().lower()
@@ -227,3 +271,18 @@ class EntitiesExtractor:
         }
         # Normalize keys to lowercase to simplify matching
         return {k.lower(): v for k, v in aliases.items()}
+
+    def _build_last_name_index(self, entity_dict: Dict[str, str]) -> Dict[str, List[Tuple[str, str]]]:
+        idx: Dict[str, List[Tuple[str, str]]] = {}
+        for surface, canonical in (entity_dict or {}).items():
+            # Only consider surfaces that look like person full names: at least 2 tokens
+            if not surface or " " not in surface:
+                continue
+            tokens = [t for t in re.split(r"\s+", surface.strip()) if t]
+            if len(tokens) < 2:
+                continue
+            last = tokens[-1].lower()
+            if not last.isalpha():
+                continue
+            idx.setdefault(last, []).append((surface, canonical))
+        return idx
