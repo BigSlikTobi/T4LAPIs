@@ -11,6 +11,7 @@ from .models import (
 )
 from .filters import RuleBasedFilter, LLMFilter
 from .storage import StorageManager, StorageResult
+from .logging import AuditLogger
 
 __all__ = [
 	"NewsItem",
@@ -24,4 +25,5 @@ __all__ = [
 	"LLMFilter",
 	"StorageManager",
 	"StorageResult",
+	"AuditLogger",
 ]

@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, Tuple, Dict, Any
+import time
 from dotenv import load_dotenv
 
 # Make sure repo root is on sys.path so 'src' package resolves when running from scripts/
@@ -32,6 +33,7 @@ from src.nfl_news_pipeline.models import FeedConfig, NewsItem
 from src.nfl_news_pipeline.processors.rss import RSSProcessor
 from src.nfl_news_pipeline.processors.sitemap import SitemapProcessor
 from src.nfl_news_pipeline.filters.relevance import filter_item
+from src.nfl_news_pipeline.logging import AuditLogger
 
 DEFAULT_LLM_MODEL_ID = "default-model"
 
@@ -131,9 +133,40 @@ def main() -> None:
 
     now = datetime.now(timezone.utc)
 
+    # Set up strict dry-run audit logger (in-memory sink, no DB writes)
+    class _DemoAuditStorage:
+        def __init__(self) -> None:
+            self.events: List[Dict[str, Any]] = []
+
+        def add_audit_event(
+            self,
+            event_type: str,
+            *,
+            pipeline_run_id: str | None = None,
+            source_name: str | None = None,
+            message: str | None = None,
+            event_data: Dict[str, Any] | None = None,
+        ) -> bool:
+            self.events.append(
+                {
+                    "type": event_type,
+                    "run": pipeline_run_id,
+                    "source": source_name,
+                    "message": message,
+                    "data": event_data or {},
+                }
+            )
+            return True
+
+    _audit_store = _DemoAuditStorage()
+    audit = AuditLogger(storage=_audit_store)
+
     total_candidates = 0
     total_kept = 0
     all_decisions: List[Dict[str, Any]] = []
+    fetched_total = 0
+    errors_total = 0
+    run_start = time.time()
 
     if not args.sitemap_only:
         if not rss_feeds:
@@ -148,6 +181,8 @@ def main() -> None:
                 per_feed = [it for it in rss_items if it.source_name == feed.name]
                 # Sort newest first
                 per_feed.sort(key=lambda x: x.publication_date or now, reverse=True)
+                fetched_total += len(per_feed)
+                audit.log_fetch_end(feed.name, items=len(per_feed), duration_ms=0)
                 if args.filter:
                     if args.verbose:
                         print(f"Filtering RSS: {feed.name} ({len(per_feed)} items before)")
@@ -176,9 +211,13 @@ def main() -> None:
                             print(f"Fetching {feed.name} URL: {constructed}")
                         except Exception:
                             pass
+                    t0 = time.time()
                     items = sp.fetch_sitemap(feed)
+                    dt_ms = int((time.time() - t0) * 1000)
                     if args.verbose:
                         print(f"Fetched {len(items)} items from {feed.name}")
+                    fetched_total += len(items)
+                    audit.log_fetch_end(feed.name, items=len(items), duration_ms=dt_ms)
                     if args.filter:
                         if args.verbose:
                             print(f"Filtering Sitemap: {feed.name} ({len(items)} items before)")
@@ -196,6 +235,21 @@ def main() -> None:
                     print_items(f"Sitemap: {feed.name}", items, args.show)
                 except Exception as e:
                     print(f"Failed to fetch sitemap for {feed.name}: {e}")
+                    audit.log_error(context=f"fetch {feed.name}", exc=e)
+                    errors_total += 1
+
+    # Structured filter and pipeline summaries (always dry-run)
+    if args.filter:
+        audit.log_filter_summary(candidates=total_candidates, kept=total_kept)
+
+    run_ms = int((time.time() - run_start) * 1000)
+    audit.log_pipeline_summary(
+        sources=len(rss_feeds) + len(sitemap_feeds),
+        fetched_items=fetched_total,
+        filtered_in=total_kept if args.filter else 0,
+        errors=errors_total,
+        duration_ms=run_ms,
+    )
 
     # Demo-only persistence/logging output (no database writes performed)
     if args.persist or args.log_decisions:
@@ -213,6 +267,11 @@ def main() -> None:
                         f"  • {d['source_name']} {d['title']!r} -> method={d['method']} stage={d['stage']} "
                         f"score={d['confidence']:.2f} reason={d['reasoning']}"
                     )
+        print("--- DEMO audit summary (dry-run) ---")
+        print(
+            f"Sources={len(rss_feeds) + len(sitemap_feeds)} fetched={fetched_total} "
+            f"kept={total_kept if args.filter else 0} errors={errors_total} time={run_ms}ms"
+        )
 
 
 if __name__ == "__main__":
