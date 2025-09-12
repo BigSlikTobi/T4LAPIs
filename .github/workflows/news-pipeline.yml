@@ -1,0 +1,50 @@
+name: NFL News Pipeline
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # Every hour
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Configure environment
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          echo "SUPABASE_URL=${SUPABASE_URL}" >> $GITHUB_ENV
+          echo "SUPABASE_KEY=${SUPABASE_KEY}" >> $GITHUB_ENV
+          echo "NEWS_PIPELINE_LLM_CACHE=1" >> $GITHUB_ENV
+          echo "NEWS_PIPELINE_LLM_CACHE_TTL=86400" >> $GITHUB_ENV
+
+      - name: Dry-run validation
+        run: |
+          python scripts/pipeline_cli.py validate --config feeds.yaml
+          python scripts/pipeline_cli.py status --config feeds.yaml
+
+      - name: Run pipeline
+        run: |
+          python scripts/pipeline_cli.py run --config feeds.yaml --llm-timeout 10
+
+      - name: Post-run summary
+        if: always()
+        run: echo "Pipeline completed at $(date -u +%FT%TZ)"

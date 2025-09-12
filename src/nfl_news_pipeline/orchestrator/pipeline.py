@@ -73,6 +73,9 @@ class NFLNewsPipeline:
         self.cm.load_config()
         defaults = self.cm.get_defaults()
         sources = self.cm.get_enabled_sources()
+        only = os.environ.get("NEWS_PIPELINE_ONLY_SOURCE")
+        if only:
+            sources = [s for s in sources if s.name == only]
 
         self.rss = RSSProcessor(defaults)
         self.sitemap = SitemapProcessor(defaults)
