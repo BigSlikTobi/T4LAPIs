@@ -17,6 +17,7 @@ from ..storage import StorageManager
 from ..processors.rss import RSSProcessor
 from ..processors.sitemap import SitemapProcessor
 from ..entities import EntitiesExtractor
+from ..entities.llm_openai import OpenAIEntityExtractor
 try:
     # Prefer centralized builder that pulls from Supabase players/teams
     from src.core.data.entity_linking import build_entity_dictionary
@@ -63,8 +64,16 @@ class NFLNewsPipeline:
         except Exception:
             entity_dict = None
 
-        # Entities extractor: uses dictionary when available, else alias/topic-only
-        self.extractor = EntitiesExtractor(entity_dict=entity_dict)
+        # Entities extractor: uses dictionary when available; optionally enrich via LLM
+        llm_client = None
+        try:
+            if os.environ.get("NEWS_PIPELINE_DISABLE_ENTITY_LLM", "").lower() not in {"1", "true", "yes"}:
+                # Use OpenAI-based extractor (gpt-5-nano by default)
+                llm_client = OpenAIEntityExtractor()
+        except Exception:
+            llm_client = None
+
+        self.extractor = EntitiesExtractor(entity_dict=entity_dict, llm=llm_client)
 
     # -------- Public API --------
     def run(self) -> PipelineSummary:

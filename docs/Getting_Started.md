@@ -32,11 +32,13 @@ Tips:
 - Omit --source to run all enabled sources (may be slower).
 
 ## 4) Optional: Enable LLM
-If you want the AI filter for ambiguous items:
+If you want AI assistance (relevance and entity extraction use OpenAI gpt-5-nano by default):
 1. Set your API key in an .env file at the repo root:
    OPENAI_API_KEY=sk-...
    # Optional tuning
    OPENAI_TIMEOUT=10
+   # Optional: override the default model for entity extraction
+   OPENAI_ENTITY_MODEL=gpt-5-nano
    NEWS_PIPELINE_LLM_CACHE=1
    NEWS_PIPELINE_LLM_CACHE_TTL=86400
 2. Re-run without --disable-llm:

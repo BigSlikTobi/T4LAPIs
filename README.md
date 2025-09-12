@@ -10,7 +10,7 @@ T4LAPIs is designed to handle complete NFL data workflows, from fetching raw dat
 
 - **📊 Comprehensive NFL Data Coverage**: 24+ different NFL datasets including teams, players, games, statistics, injuries, and advanced analytics
 - **🔄 Automated Data Pipelines**: GitHub Actions workflows for scheduled data updates
-- **🤖 AI-Powered Content Generation**: Automated personalized summaries using Gemini 1.5 Flash + DeepSeek entity extraction
+– **🤖 AI-Powered Content Generation**: Automated personalized summaries using Gemini 1.5 Flash + OpenAI gpt-5-nano entity extraction
 - **� Trending Summary Generator**: AI-powered comprehensive summaries for trending NFL entities with pipeline integration
 - **�🛠️ CLI Tools**: Command-line interfaces for manual data operations
 - **📈 Smart Update Logic**: Intelligent detection of data gaps and incremental updates
@@ -28,6 +28,17 @@ T4LAPIs/
 │   └── core/
 │       ├── data/              # Data management modules
 For a friendly step-by-step setup, read docs/Getting_Started.md.
+
+### LLM-backed entity extraction
+- The pipeline uses a small LLM to help extract players and teams from titles/descriptions, validated against our NFL dictionary.
+- It’s enabled by default. To disable, set:
+    - NEWS_PIPELINE_ENTITY_LLM=0
+    - Or, to bypass LLM wiring in the orchestrator entirely: NEWS_PIPELINE_DISABLE_ENTITY_LLM=1
+- Provide your LLM API key if needed (see docs/Getting_Started.md) to improve entity accuracy; without a key, the pipeline will fall back to rules and aliases.
+
+Default model and controls:
+- Uses OpenAI gpt-5-nano by default for entity extraction.
+- Override with OPENAI_ENTITY_MODEL or OPENAI_MODEL. Configure timeout via OPENAI_TIMEOUT.
 
 │       └── utils/             # Utility functions
 ├── content_generation/        # AI-powered content generation
@@ -260,7 +271,7 @@ The system now includes automated generation of personalized NFL summaries power
 
 - **Schedule**: Runs every hour during peak hours (6 AM - 11 PM UTC)
 - **Intelligence**: Uses user preferences to generate tailored content
-- **Fallback**: DeepSeek Chat backup for reliability
+- **Fallback**: The generator can use alternative providers if configured
 - **Manual Trigger**: Available for testing and on-demand generation
 
 **Setup**: See [GitHub Actions Setup Guide](docs/GitHub_Actions_Setup.md) for configuration details.
@@ -670,7 +681,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - [nfl_data_py](https://github.com/cooperdff/nfl_data_py) - For providing comprehensive NFL data access
 - [Supabase](https://supabase.com/) - For the backend database platform
-- [DeepSeek AI](https://www.deepseek.com/) - For LLM-powered entity extraction capabilities
+- OpenAI - For LLM-powered entity extraction capabilities
 - NFL community - For maintaining and contributing to open-source NFL data
 
 ---
