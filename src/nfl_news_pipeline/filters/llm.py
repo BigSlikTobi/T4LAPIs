@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Optional
 import hashlib
 import json
+import re
 
 from ..models import NewsItem, FilterResult
 from ..utils.cache import LLMResponseCache
@@ -107,7 +108,6 @@ class LLMFilter:
             content = resp.choices[0].message.content.strip()
             # Very permissive parse; expect a JSON-like string
             # Note: use module-level json import to avoid shadowing earlier usage
-            import re
 
             m = re.search(r"\{.*\}", content, re.S)
             data = json.loads(m.group(0)) if m else {}
