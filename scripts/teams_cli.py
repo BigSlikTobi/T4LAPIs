@@ -31,13 +31,15 @@ def main():
         # Create loader and run
         loader = TeamsDataLoader()
         
-        # Check if teams already exist (unless clearing)
+        # Check if teams already exist (unless clearing). Proceed if table is incomplete.
         if not args.clear:
             existing_count = loader.get_existing_teams_count()
-            if existing_count > 0:
-                print(f"Found {existing_count} existing team records")
+            if existing_count >= 32:
+                print(f"Found {existing_count} existing team records (looks complete)")
                 print("Teams already exist. Use --clear to replace existing data.")
                 return True
+            elif existing_count > 0:
+                print(f"Found {existing_count} existing team records (incomplete). Will upsert missing/updated teams.")
         
         result = loader.load_data(
             dry_run=args.dry_run,

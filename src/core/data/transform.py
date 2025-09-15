@@ -6,6 +6,8 @@ This module provides classes to transform raw NFL data into the format expected 
 import pandas as pd
 import logging
 from typing import Dict, List, Any, Optional
+
+from .team_abbr import normalize_team_abbr
 from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
@@ -148,8 +150,11 @@ class TeamDataTransformer(BaseDataTransformer):
     
     def _transform_single_record(self, row: pd.Series) -> Optional[Dict[str, Any]]:
         """Transform a single team row into a database record."""
+        # Normalize team abbreviation to canonical value
+        team_abbr = normalize_team_abbr(row['team_abbr']) if 'team_abbr' in row else None
+
         team_record = {
-            "team_abbr": row['team_abbr'],
+            "team_abbr": team_abbr,
             "team_name": row['team_name'], 
             "team_conference": row['team_conf'],
             "team_division": row['team_division'],
@@ -341,32 +346,11 @@ class PlayerDataTransformer(BaseDataTransformer):
             return "Unknown"
     
     def _normalize_team_abbreviation(self, team_abbr: Any) -> Optional[str]:
-        """
-        Normalize team abbreviations to current valid abbreviations.
-        Maps old/historical team abbreviations to current ones.
-        Returns None for unknown teams to avoid foreign key constraint violations.
-        """
-        if pd.isna(team_abbr) or not team_abbr:
-            return None
-            
-        team_str = str(team_abbr).upper().strip()
-        
-        # Mapping of historical/old team abbreviations to current ones
-        team_mapping = {
-            'SD': 'LAC',  # San Diego Chargers -> Los Angeles Chargers
-            'STL': 'LA', # St. Louis Rams -> Los Angeles Rams
-            'OAK': 'LV',  # Oakland Raiders -> Las Vegas Raiders
-        }
-        
-        # Return mapped team or original if it's likely valid (2-3 chars)
-        if team_str in team_mapping:
-            self.logger.debug(f"Mapped historical team {team_str} to {team_mapping[team_str]}")
-            return team_mapping[team_str]
-        elif 2 <= len(team_str) <= 3:
-            return team_str
-        else:
-            self.logger.warning(f"Invalid team abbreviation format: {team_str}")
-            return None
+        """Wrapper to use centralized normalization for player-related fields."""
+        normalized = normalize_team_abbr(team_abbr)
+        if normalized is None and team_abbr:
+            self.logger.warning(f"Unknown or non-canonical team abbreviation: {team_abbr}")
+        return normalized
     
     def _validate_record(self, player_record: Dict[str, Any]) -> bool:
         """Validate a single player record for completeness and correctness."""
