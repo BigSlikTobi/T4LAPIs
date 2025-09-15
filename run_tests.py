@@ -27,6 +27,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run tests for auto-update scripts")
     parser.add_argument("--coverage", action="store_true", help="Run with coverage report")
     parser.add_argument("--auto-only", action="store_true", help="Run only auto-update tests")
+    parser.add_argument("--storage", action="store_true", help="Run only storage manager tests")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     
     args = parser.parse_args()
@@ -38,7 +39,11 @@ def main():
     success_count = 0
     total_count = 0
     
-    if args.auto_only:
+    if args.storage:
+        tests = [
+            (["python", "-m", "pytest", "tests/test_storage_manager.py"] + (["-v"] if args.verbose else []), "Storage Manager Tests")
+        ]
+    elif args.auto_only:
         # Run only auto-update script tests
         tests = [
             (["python", "-m", "pytest", "tests/test_games_auto_update.py"] + 
