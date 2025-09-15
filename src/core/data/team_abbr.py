@@ -27,7 +27,7 @@ CANONICAL = {
     'JAX',
     'KC',
     'LAC',
-        'LA',
+    'LA',
     'LV',
     'MIA',
     'MIN',
@@ -48,7 +48,7 @@ CANONICAL = {
 # Mapping of historical/alternate codes to canonical ones
 TEAM_ABBR_MAP = {
     # Los Angeles / St. Louis Rams
-        'STL': 'LA', 'LAR': 'LA', 'LA': 'LA',
+        'STL': 'LA', 'LAR': 'LA',
     # Raiders
     'OAK': 'LV', 'LVR': 'LV',
     # Chargers
