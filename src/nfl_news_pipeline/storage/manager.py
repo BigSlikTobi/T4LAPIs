@@ -268,7 +268,7 @@ class StorageManager:
                 return players  # Give up silently
 
         for r in roster_rows:
-            team_val = r.get(self.player_team_col) if not fallback_used else r.get(self.player_team_col)
+            team_val = r.get(self.player_team_col) if not fallback_used else r.get("team")
             if not team_val:
                 continue
             full_name = r.get("full_name") or None
@@ -292,7 +292,7 @@ class StorageManager:
                 continue
             teams_for_name = {t for t, _ in matches}
             # Treat multiple roster rows as ambiguous even if same team appears duplicated
-            if len(matches) == 1 or (len(teams_for_name) == 1 and len(matches) == 1):
+            if len(matches) == 1:
                 canonical = matches[0][1]
                 filtered.append(canonical)
                 continue
