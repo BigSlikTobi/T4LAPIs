@@ -36,8 +36,15 @@ class DatabaseManager:
         try:
             self.logger.info(f"Clearing all records from {self.table_name} table")
             
-            # Use a condition that matches all records
-            response = self.supabase.table(self.table_name).delete().neq('id', '').execute()
+            # Use a condition that matches all records, with a valid column per table
+            table_key_column = {
+                'players': 'player_id',
+                'teams': 'team_abbr',
+                'games': 'game_id',
+                'player_weekly_stats': 'stat_id',
+            }.get(self.table_name, 'id')
+
+            response = self.supabase.table(self.table_name).delete().neq(table_key_column, '').execute()
             
             if hasattr(response, 'error') and response.error:
                 self.logger.error(f"Error clearing table: {response.error}")
