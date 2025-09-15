@@ -60,6 +60,12 @@ jobs:
           fi
           echo "season=$nfl_season" >> $GITHUB_OUTPUT
         fi
+    
+    - name: Ensure teams table is up-to-date
+      run: |
+        echo "Ensuring teams data is populated before players (FK dependencies)"
+        # Use --clear only if you want to fully refresh; otherwise upsert will fill missing teams
+        python scripts/teams_cli.py
         
     - name: Run players data update
       run: |
