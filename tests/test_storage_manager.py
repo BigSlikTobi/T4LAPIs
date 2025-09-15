@@ -61,6 +61,7 @@ class FakeSupabase:
             "source_watermarks": [],
             "filter_decisions": [],
             "pipeline_audit_log": [],
+            "players": [],  # Added for player/team disambiguation tests
         }
 
     def table(self, name: str):
@@ -74,6 +75,8 @@ class FakeSupabase:
             return self._apply_watermarks(ops)
         if table == "filter_decisions" or table == "pipeline_audit_log":
             return self._apply_simple_append(table, ops)
+        if table == "players":
+            return self._apply_players(ops)
         return FakeResponse([])
 
     def _filter_rows(self, rows: List[Dict[str, Any]], filters: List):
@@ -132,6 +135,20 @@ class FakeSupabase:
             r = ops["insert"]
             self.tables[table].append(dict(r))
             return FakeResponse([r])
+        return FakeResponse([])
+
+    def _apply_players(self, ops: Dict[str, Any]):
+        rows = self.tables["players"]
+        if "select" in ops:
+            subset = self._filter_rows(rows, ops.get("filters"))
+            return FakeResponse(subset)
+        if "insert" in ops:
+            inserted = []
+            for r in ops["insert"]:
+                nr = dict(r)
+                rows.append(nr)
+                inserted.append(nr)
+            return FakeResponse(inserted)
         return FakeResponse([])
 
 
@@ -204,3 +221,52 @@ def test_log_filter_decision_and_audit_event():
     ok2 = sm.add_audit_event("filter", source_name="feedX", message="done")
     assert ok2
     assert len(db.tables["pipeline_audit_log"]) == 1
+
+
+def test_player_disambiguation_with_team_context(monkeypatch):
+    """Players with same name but different teams: only the matching team should remain."""
+    db = FakeSupabase()
+    # Insert two players with identical names but different teams
+    db.tables["players"].extend([
+        {
+            "player_id": "00-1111111",
+            "full_name": "Josh Allen",
+            "first_name": "Josh",
+            "last_name": "Allen",
+            "latest_team": "BUF",
+        },
+        {
+            "player_id": "00-2222222",
+            "full_name": "Josh Allen",
+            "first_name": "Josh",
+            "last_name": "Allen",
+            "latest_team": "JAX",
+        },
+    ])
+
+    # Ensure filtering enabled & ambiguity skip behavior
+    monkeypatch.setenv("ENABLE_PLAYER_TEAM_FILTER", "1")
+    monkeypatch.setenv("KEEP_AMBIGUOUS_PLAYERS", "0")
+
+    sm = StorageManager(db)
+
+    # Build item with both teams present -> ambiguity -> player should be dropped
+    it_ambiguous = make_item("https://ambiguous.com/1")
+    it_ambiguous.raw_metadata = {"entity_tags": {"players": ["Josh Allen"], "teams": ["BUF", "JAX"]}}
+
+    # Item with only BUF -> should keep Josh Allen (BUF)
+    it_buf_only = make_item("https://buf.com/1")
+    it_buf_only.raw_metadata = {"entity_tags": {"players": ["Josh Allen"], "teams": ["BUF"]}}
+
+    res = sm.store_news_items([it_ambiguous, it_buf_only])
+    # Collect stored entity rows
+    # Our FakeSupabase does not persist news_url_entities table; we validate via side effects of filtering.
+    # Instead, re-run the filter helper directly for clarity.
+    filtered_players_amb = sm._filter_players_by_teams(["Josh Allen"], ["BUF", "JAX"])  # noqa: SLF001
+    filtered_players_buf = sm._filter_players_by_teams(["Josh Allen"], ["BUF"])  # noqa: SLF001
+
+    assert filtered_players_amb == []  # Ambiguous -> dropped
+    assert filtered_players_buf == ["Josh Allen"]  # Unique within BUF
+
+    # Sanity check: ids mapped for insertion path
+    assert len(res.ids_by_url) == 2

@@ -34,6 +34,13 @@ class StorageManager:
         self.table_audit = os.getenv("PIPELINE_AUDIT_LOG_TABLE", "pipeline_audit_log")
         self.table_filter_decisions = os.getenv("FILTER_DECISIONS_TABLE", "filter_decisions")
         self.table_news_entities = os.getenv("NEWS_URL_ENTITIES_TABLE", "news_url_entities")
+        # Players / teams source tables for contextual disambiguation
+        self.table_players = os.getenv("PLAYERS_TABLE", "players")
+        self.player_team_col = os.getenv("PLAYER_TEAM_COLUMN", "latest_team")  # fallback to 'team' if not present
+        # Player name disambiguation behavior
+        self.enable_player_team_filter = os.getenv("ENABLE_PLAYER_TEAM_FILTER", "1").lower() not in {"0", "false", "no"}
+        # If a player name maps to multiple players across different teams within the filtered subset, skip by default
+        self.keep_ambiguous_players = os.getenv("KEEP_AMBIGUOUS_PLAYERS", "0").lower() in {"1", "true", "yes"}
         # Back-compat flag: also write JSONB entities column (default off per normalization)
         self.write_entities_jsonb = os.getenv("WRITE_ENTITIES_JSONB", "0").lower() not in {"0", "false", "no"}
 
@@ -188,6 +195,14 @@ class StorageManager:
                     else:
                         players.append(str(e))
 
+            # --- Player disambiguation using team context ---
+            if self.enable_player_team_filter and players and teams:
+                try:
+                    players = self._filter_players_by_teams(players, teams)
+                except Exception:
+                    # Fallback: retain original players list on any failure
+                    pass
+
             for t in teams:
                 if t:
                     rows.append({
@@ -211,6 +226,85 @@ class StorageManager:
                 except Exception:
                     # Best effort: continue with next chunk
                     continue
+
+    # -------- Player disambiguation helpers --------
+    def _filter_players_by_teams(self, extracted_players: List[str], extracted_teams: List[str]) -> List[str]:
+        """Return a filtered list of player names constrained to the extracted teams.
+
+        Strategy:
+        1. Fetch the roster subset for the extracted team abbreviations.
+        2. Build an index mapping lowercase full_name / first+last combos -> set of (team, canonical_full_name).
+        3. For every extracted player name, keep it only if it appears in the index AND either:
+           - It maps uniquely to a single team (unambiguous) OR
+           - Ambiguous retention is enabled via KEEP_AMBIGUOUS_PLAYERS.
+        4. Return canonical full_name (preferred) for consistency.
+
+        Fallback: if any error occurs we return the original list.
+        """
+        players = [p for p in extracted_players if p]
+        teams = [t for t in extracted_teams if t]
+        if not players or not teams:
+            return players
+
+        # Deduplicate inputs
+        teams_set = list({t.upper() for t in teams})
+        name_index: Dict[str, List[Tuple[str, str]]] = {}
+
+        # Attempt primary column; if fails, fall back to 'team'
+        select_cols_primary = f"player_id,full_name,first_name,last_name,{self.player_team_col}"
+        fallback_used = False
+        try:
+            resp = self.client.table(self.table_players).select(select_cols_primary).in_(self.player_team_col, teams_set).execute()
+            roster_rows = getattr(resp, "data", []) or []
+        except Exception:
+            # Fallback attempt
+            try:
+                fallback_used = True
+                team_col = "team"
+                resp = self.client.table(self.table_players).select(f"player_id,full_name,first_name,last_name,{team_col}").in_(team_col, teams_set).execute()
+                roster_rows = getattr(resp, "data", []) or []
+                self.player_team_col = team_col  # Update for future calls
+            except Exception:
+                return players  # Give up silently
+
+        for r in roster_rows:
+            team_val = r.get(self.player_team_col) if not fallback_used else r.get("team")
+            if not team_val:
+                continue
+            full_name = r.get("full_name") or None
+            first_name = r.get("first_name") or None
+            last_name = r.get("last_name") or None
+            candidates = set()
+            if full_name:
+                candidates.add(str(full_name).strip())
+            if first_name and last_name:
+                candidates.add(f"{first_name} {last_name}".strip())
+            for nm in candidates:
+                key = nm.lower()
+                name_index.setdefault(key, []).append((str(team_val).upper(), full_name or nm))
+
+        filtered: List[str] = []
+        for original in players:
+            key = original.lower()
+            matches = name_index.get(key)
+            if not matches:
+                # Player not in roster subset; drop to reduce false positives
+                continue
+            teams_for_name = {t for t, _ in matches}
+            # Treat multiple roster rows as ambiguous even if same team appears duplicated
+            if len(matches) == 1:
+                canonical = matches[0][1]
+                filtered.append(canonical)
+                continue
+            # Multiple teams -> ambiguous
+            if self.keep_ambiguous_players:
+                # Include once using first canonical reference
+                canonical = matches[0][1]
+                filtered.append(canonical)
+            # else skip (dropped)
+
+        # Do NOT fall back to original list if all were ambiguous; explicit empty conveys uncertainty.
+        return filtered
 
     # ------------- Filter decision logging -------------
     def log_filter_decision(
