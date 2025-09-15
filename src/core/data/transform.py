@@ -151,7 +151,10 @@ class TeamDataTransformer(BaseDataTransformer):
     def _transform_single_record(self, row: pd.Series) -> Optional[Dict[str, Any]]:
         """Transform a single team row into a database record."""
         # Normalize team abbreviation to canonical value
-        team_abbr = normalize_team_abbr(row['team_abbr']) if 'team_abbr' in row else None
+        if 'team_abbr' not in row or pd.isna(row['team_abbr']):
+            self.logger.error(f"'team_abbr' missing in row: {row.to_dict()}")
+            return None
+        team_abbr = normalize_team_abbr(row['team_abbr'])
 
         team_record = {
             "team_abbr": team_abbr,

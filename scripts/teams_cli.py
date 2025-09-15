@@ -7,6 +7,9 @@ Teams data is relatively static and typically loaded once.
 import sys
 import os
 
+# Expected number of NFL teams
+EXPECTED_NFL_TEAMS_COUNT = 32
+
 # Add project root to path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
@@ -34,7 +37,7 @@ def main():
         # Check if teams already exist (unless clearing). Proceed if table is incomplete.
         if not args.clear:
             existing_count = loader.get_existing_teams_count()
-            if existing_count >= 32:
+            if existing_count >= EXPECTED_NFL_TEAMS_COUNT:
                 print(f"Found {existing_count} existing team records (looks complete)")
                 print("Teams already exist. Use --clear to replace existing data.")
                 return True
