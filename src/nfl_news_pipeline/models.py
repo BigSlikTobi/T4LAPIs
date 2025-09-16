@@ -171,7 +171,7 @@ class ContextSummary:
     def to_db(self) -> Dict[str, Any]:
         self.validate()
         return {
-            k: v
+            k: v.isoformat() if isinstance(v, datetime) else v
             for k, v in {
                 "id": self.id,
                 "news_url_id": self.news_url_id,
