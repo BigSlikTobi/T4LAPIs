@@ -23,6 +23,12 @@ from .logging import AuditLogger
 from .orchestrator import NFLNewsPipeline, PipelineSummary
 from .similarity import SimilarityCalculator, SimilarityMetric, SimilarityResult
 from .centroid_manager import GroupCentroidManager, CentroidUpdateResult
+from .group_manager import (
+	GroupManager, 
+	GroupStorageManager, 
+	GroupAssignmentResult, 
+	GroupMembershipValidation
+)
 
 __all__ = [
 	"NewsItem",
@@ -52,4 +58,9 @@ __all__ = [
 	"SimilarityResult",
 	"GroupCentroidManager",
 	"CentroidUpdateResult",
+	# Group management exports (Tasks 6.1, 6.2, 6.3)
+	"GroupManager",
+	"GroupStorageManager",
+	"GroupAssignmentResult",
+	"GroupMembershipValidation",
 ]
