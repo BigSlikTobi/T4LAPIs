@@ -20,7 +20,15 @@ from .models import (
 from .filters import RuleBasedFilter, LLMFilter
 from .storage import StorageManager, StorageResult
 from .logging import AuditLogger
-from .orchestrator import NFLNewsPipeline, PipelineSummary
+from .orchestrator import (
+	NFLNewsPipeline,
+	PipelineSummary,
+	StoryGroupingOrchestrator,
+	StoryGroupingBatchResult,
+	StoryGroupingMetrics,
+	StoryGroupingSettings,
+	StoryProcessingOutcome,
+)
 from .similarity import SimilarityCalculator, SimilarityMetric, SimilarityResult
 from .centroid_manager import GroupCentroidManager, CentroidUpdateResult
 from .group_manager import (
@@ -45,6 +53,11 @@ __all__ = [
 	"AuditLogger",
 	"NFLNewsPipeline",
 	"PipelineSummary",
+	"StoryGroupingOrchestrator",
+	"StoryGroupingBatchResult",
+	"StoryGroupingMetrics",
+	"StoryGroupingSettings",
+	"StoryProcessingOutcome",
 	# Story grouping exports
 	"ContextSummary",
 	"StoryEmbedding",

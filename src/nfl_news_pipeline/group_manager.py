@@ -19,6 +19,7 @@ from .models import (
     StoryEmbedding, 
     StoryGroup, 
     StoryGroupMember, 
+    ContextSummary,
     GroupCentroid,
     GroupStatus,
     EMBEDDING_DIM
@@ -94,6 +95,35 @@ class GroupStorageManager:
             
         except Exception as e:
             logger.error(f"Failed to store embedding for {embedding.news_url_id}: {e}")
+            return False
+
+    async def upsert_context_summary(self, summary: ContextSummary) -> bool:
+        """Insert or update a context summary record for a story."""
+        try:
+            summary.validate()
+
+            # Ensure generated_at is set for TTL-based consumers
+            if summary.generated_at is None:
+                summary.generated_at = datetime.now(timezone.utc)
+
+            payload = summary.to_db()
+
+            existing = self.client.table(self.table_summaries)\
+                .select("id")\
+                .eq("news_url_id", summary.news_url_id)\
+                .execute()
+
+            table = self.client.table(self.table_summaries)
+            if existing.data:
+                table.update(payload).eq("news_url_id", summary.news_url_id).execute()
+            else:
+                table.insert(payload).execute()
+
+            logger.info(f"Upserted context summary for {summary.news_url_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to upsert context summary for {summary.news_url_id}: {e}")
             return False
     
     async def store_group(self, group: StoryGroup) -> bool:

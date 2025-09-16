@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import asyncio
+import inspect
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
@@ -45,9 +47,10 @@ class EmbeddingGenerator:
         self.batch_size = batch_size
         self.use_openai_primary = use_openai_primary
         
-        # Initialize OpenAI client if API key provided
+        # Initialize OpenAI client if API key provided (use sync client for compatibility with tests)
         self.openai_client = None
         if openai_api_key:
+            # Use OpenAI (sync) to match existing tests' expectations
             self.openai_client = openai.OpenAI(api_key=openai_api_key)
             
         # Initialize sentence transformer model (lazy loading)
@@ -220,10 +223,8 @@ class EmbeddingGenerator:
         if not self.openai_client:
             raise ValueError("OpenAI client not initialized")
             
-        response = await self.openai_client.embeddings.acreate(
-            model=self.openai_model,
-            input=text,
-            encoding_format="float"
+        response = await self._openai_embeddings_create_async(
+            input_payload=text
         )
         
         vector = np.array(response.data[0].embedding, dtype=np.float32)
@@ -236,16 +237,34 @@ class EmbeddingGenerator:
         if not self.openai_client:
             raise ValueError("OpenAI client not initialized")
             
-        response = await self.openai_client.embeddings.acreate(
-            model=self.openai_model,
-            input=texts,
-            encoding_format="float"
+        response = await self._openai_embeddings_create_async(
+            input_payload=texts
         )
         
         vectors = [np.array(item.embedding, dtype=np.float32) for item in response.data]
         model_version = getattr(response, 'model', self.openai_model)
         
         return vectors, self.openai_model, model_version
+
+    async def _openai_embeddings_create_async(self, input_payload: Union[str, List[str]]):
+        """Call OpenAI embeddings.create in an async-friendly way for both sync and async clients.
+        
+        If the client is async, await directly; otherwise, offload the blocking call to a thread.
+        """
+        if not self.openai_client:
+            raise ValueError("OpenAI client not initialized")
+
+        create_fn = self.openai_client.embeddings.create
+        kwargs = {
+            "model": self.openai_model,
+            "input": input_payload,
+            "encoding_format": "float",
+        }
+
+        if inspect.iscoroutinefunction(create_fn):
+            return await create_fn(**kwargs)
+        # Sync client: run in thread to avoid blocking
+        return await asyncio.to_thread(create_fn, **kwargs)
 
     def _generate_transformer_embedding(self, text: str) -> tuple[np.ndarray, str, str]:
         """Generate embedding using sentence transformer."""
