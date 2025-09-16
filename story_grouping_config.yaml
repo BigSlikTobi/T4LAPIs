@@ -1,0 +1,79 @@
+# Story Grouping Configuration
+# Configuration for the NFL News Pipeline Story Similarity Grouping Feature
+
+version: 1
+
+# LLM Configuration for URL context extraction
+llm:
+  provider: "openai"  # or "google", "deepseek"
+  model: "gpt-4o-mini"  # or "gemini-2.5-lite", "deepseek-chat"
+  api_key_env: "OPENAI_API_KEY"  # Environment variable name for API key
+  max_tokens: 500
+  temperature: 0.1
+  timeout_seconds: 30
+  max_retries: 3
+
+# Embedding Configuration
+embedding:
+  model_name: "all-MiniLM-L6-v2"
+  dimension: 384
+  batch_size: 32
+  cache_ttl_hours: 24
+  normalize_vectors: true
+
+# Similarity Calculation Configuration
+similarity:
+  threshold: 0.8
+  metric: "cosine"  # cosine, euclidean, dot_product
+  max_candidates: 100
+  search_limit: 1000
+  candidate_similarity_floor: 0.35
+
+# Group Management Configuration
+grouping:
+  max_group_size: 50
+  centroid_update_threshold: 5
+  status_transition_hours: 24
+  auto_tagging: true
+  max_stories_per_run: null  # null for unlimited
+  prioritize_recent: true
+  prioritize_high_relevance: true
+  reprocess_existing: false
+
+# Performance Configuration
+performance:
+  parallel_processing: true
+  max_workers: 4
+  max_parallelism: 4
+  batch_size: 10
+  cache_size: 1000
+  max_total_processing_time: null  # seconds, null for unlimited
+
+# Database Configuration
+database:
+  connection_timeout_seconds: 30
+  max_connections: 10
+  batch_insert_size: 100
+  vector_index_maintenance: true
+
+# Monitoring and Logging Configuration
+monitoring:
+  log_level: "INFO"
+  metrics_enabled: true
+  cost_tracking_enabled: true
+  performance_alerts_enabled: true
+  group_quality_monitoring: true
+
+# Environment Variables Map
+# This section documents which environment variables are used
+environment_variables:
+  required:
+    - SUPABASE_URL
+    - SUPABASE_KEY
+  optional:
+    - OPENAI_API_KEY  # Required if using OpenAI LLM
+    - GOOGLE_API_KEY  # Required if using Google LLM
+    - DEEPSEEK_API_KEY  # Required if using DeepSeek LLM
+    - LOG_LEVEL
+    - STORY_GROUPING_ENABLED
+    - STORY_GROUPING_DRY_RUN
