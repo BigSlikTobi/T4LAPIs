@@ -626,3 +626,4 @@ class TestIntegration:
         # Should have processed both items (total requests increased)
         assert final_requests > initial_requests
         assert result1.summary_text != result2.summary_text
+

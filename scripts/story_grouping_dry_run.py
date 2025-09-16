@@ -36,7 +36,6 @@ from src.nfl_news_pipeline.group_manager import GroupManager
 
 logger = logging.getLogger("story_grouping_dry_run")
 
-
 class InMemoryGroupStorage:
     """Minimal in-memory implementation of GroupStorageManager for dry runs."""
 
