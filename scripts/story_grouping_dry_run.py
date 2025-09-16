@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from uuid import uuid4
 
-
 # Ensure repository root is available when the script runs from scripts/
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -306,6 +305,7 @@ async def run_dry_run(args: argparse.Namespace) -> None:
             logger.exception("Failed to process news_url_id=%s: %s", news_url_id, exc)
             failures.append((str(news_url_id), str(exc)))
             continue
+
         article_id = str(news_url_id)
         article_info[article_id] = {
             "title": news_item.title,
@@ -337,7 +337,6 @@ async def run_dry_run(args: argparse.Namespace) -> None:
             reason = assignment.error_message or "Unknown error during grouping"
             print(f"   Group assignment failed: {reason}")
             failures.append((article_id, reason))
-
 
         total_processed += 1
         if args.limit and total_processed >= args.limit:
@@ -429,7 +428,6 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="Maximum number of stories allowed per group before forcing a new group",
     )
     parser.add_argument(
-
         "--log-level",
         default="INFO",
         choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
