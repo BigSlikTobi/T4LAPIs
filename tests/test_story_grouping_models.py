@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from src.nfl_news_pipeline.models import (
     EMBEDDING_DIM,
     GroupStatus,
@@ -55,7 +55,7 @@ def test_story_group_validation_and_roundtrip():
         member_count=2,
         status=GroupStatus.NEW,
         tags=["breaking", "trade"],
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     grp.validate()
     row = grp.to_db()

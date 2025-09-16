@@ -1,7 +1,7 @@
 # Implementation Plan
 
 -
-  1. [ ] Set up database schema extensions for story grouping
+  1. [x] Set up database schema extensions for story grouping
   - Create database migration file with new tables for embeddings, groups, and
     memberships
   - Add vector extension support and indexes for efficient similarity search
@@ -9,7 +9,7 @@
   - _Requirements: 5.1, 5.2, 5.6_
 
 -
-  2. [ ] Implement core data models for story grouping
+  2. [x] Implement core data models for story grouping
   - Extend existing models.py with new dataclasses for embeddings, groups, and
     summaries
   - Add validation methods and type hints for all new models

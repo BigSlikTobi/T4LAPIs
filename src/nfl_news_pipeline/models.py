@@ -248,7 +248,7 @@ class StoryEmbedding:
             for k, v in {
                 "id": self.id,
                 "news_url_id": self.news_url_id,
-                "embedding_vector": [float(x) for x in self.embedding_vector],
+                "embedding_vector": self.embedding_vector,
                 "model_name": self.model_name,
                 "model_version": self.model_version,
                 "summary_text": self.summary_text,
