@@ -554,9 +554,51 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
         help="Logging level",
     )
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="Path to story grouping configuration YAML file (overrides individual arguments)",
+    )
     args = parser.parse_args(argv)
     if isinstance(args.similarity_metric, str):
         args.similarity_metric = build_similarity_metric(args.similarity_metric)
+    
+    # Load configuration file if provided
+    if args.config:
+        try:
+            # Add the import only when needed to avoid dependency issues
+            sys.path.insert(0, str(ROOT_DIR / "src"))
+            from nfl_news_pipeline.story_grouping_config import StoryGroupingConfigManager
+            
+            logger.info(f"Loading configuration from {args.config}")
+            config_manager = StoryGroupingConfigManager(args.config)
+            config = config_manager.load_config()
+            
+            # Override args with config values (args take precedence over config)
+            if not hasattr(args, 'provider') or args.provider == "openai":
+                args.provider = config.llm.provider
+            if args.similarity_threshold == 0.8:  # default value
+                args.similarity_threshold = config.similarity.threshold
+            if args.sentence_model == "all-MiniLM-L6-v2":  # default value
+                args.sentence_model = config.embedding.model_name
+            if args.embedding_batch_size == 32:  # default value
+                args.embedding_batch_size = config.embedding.batch_size
+            if args.max_parallelism == 4:  # default value
+                args.max_parallelism = config.performance.max_parallelism
+            if args.max_candidates == 8:  # default value
+                args.max_candidates = config.similarity.max_candidates
+            if args.candidate_floor == 0.35:  # default value
+                args.candidate_floor = config.similarity.candidate_similarity_floor
+            if args.max_group_size == 50:  # default value
+                args.max_group_size = config.grouping.max_group_size
+            if args.log_level == "INFO":  # default value
+                args.log_level = config.monitoring.log_level
+                
+            logger.info("Configuration loaded successfully from YAML file")
+        except Exception as e:
+            logger.warning(f"Failed to load configuration from {args.config}: {e}")
+            logger.info("Continuing with command line arguments")
+    
     return args
 
 
