@@ -781,4 +781,3 @@ class GroupManager:
             
         except Exception as e:
             logger.error(f"Failed to get analytics for group {group_id}: {e}")
-            return {}
