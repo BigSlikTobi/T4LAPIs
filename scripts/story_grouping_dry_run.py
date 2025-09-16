@@ -23,6 +23,7 @@ from src.core.db.database_init import get_supabase_client
 from src.nfl_news_pipeline.centroid_manager import GroupCentroidManager
 from src.nfl_news_pipeline.embedding.generator import EmbeddingGenerator
 from src.nfl_news_pipeline.models import (
+    ContextSummary,
     GroupCentroid,
     GroupStatus,
     ProcessedNewsItem,
@@ -33,6 +34,11 @@ from src.nfl_news_pipeline.models import (
 from src.nfl_news_pipeline.similarity import SimilarityCalculator, SimilarityMetric
 from src.nfl_news_pipeline.story_grouping import URLContextExtractor
 from src.nfl_news_pipeline.group_manager import GroupManager
+from src.nfl_news_pipeline.orchestrator.story_grouping import (
+    StoryGroupingOrchestrator,
+    StoryGroupingSettings,
+    StoryProcessingOutcome,
+)
 
 logger = logging.getLogger("story_grouping_dry_run")
 
@@ -43,6 +49,7 @@ class InMemoryGroupStorage:
         self.groups: Dict[str, StoryGroup] = {}
         self.group_members: Dict[str, List[StoryGroupMember]] = {}
         self.embeddings: Dict[str, StoryEmbedding] = {}
+        self.context_summaries: Dict[str, ContextSummary] = {}
         self.creation_order: List[str] = []
 
         # Attributes referenced by GroupManager APIs
@@ -55,6 +62,13 @@ class InMemoryGroupStorage:
     async def store_embedding(self, embedding: StoryEmbedding) -> bool:
         embedding.validate()
         self.embeddings[embedding.news_url_id] = embedding
+        return True
+
+    async def upsert_context_summary(self, summary: ContextSummary) -> bool:
+        summary.validate()
+        if summary.generated_at is None:
+            summary.generated_at = datetime.now(timezone.utc)
+        self.context_summaries[summary.news_url_id] = summary
         return True
 
     async def store_group(self, group: StoryGroup) -> bool:
@@ -286,94 +300,158 @@ async def run_dry_run(args: argparse.Namespace) -> None:
         max_group_size=args.max_group_size,
     )
 
-    total_processed = 0
-    failures: List[Tuple[str, str]] = []
+    id_to_item: Dict[str, ProcessedNewsItem] = {
+        str(news_url_id): news_item for news_url_id, news_item in entries
+    }
+    url_id_map: Dict[str, str] = {
+        item.url: str(news_url_id) for news_url_id, item in entries if item.url
+    }
+    story_order: List[str] = [str(news_url_id) for news_url_id, _ in entries]
+
+    settings = StoryGroupingSettings(
+        max_parallelism=args.max_parallelism,
+        max_candidates=args.max_candidates,
+        candidate_similarity_floor=args.candidate_floor,
+        max_total_processing_time=args.max_processing_seconds,
+        max_stories_per_run=args.max_stories,
+        prioritize_recent=not args.disable_recent_priority,
+        prioritize_high_relevance=not args.disable_relevance_priority,
+        reprocess_existing=args.reprocess_existing,
+    )
+
+    orchestrator = StoryGroupingOrchestrator(
+        group_manager=group_manager,
+        context_extractor=extractor,
+        embedding_generator=embedding_generator,
+        settings=settings,
+    )
+
+    logger.info(
+        "Starting orchestration for %d candidate stories (parallelism=%d)",
+        len(entries),
+        settings.max_parallelism,
+    )
+
+    batch_result = await orchestrator.process_batch(
+        [item for _, item in entries],
+        url_id_map,
+    )
+
     article_info: Dict[str, Dict[str, str]] = {}
-
-    for index, (news_url_id, news_item) in enumerate(entries, start=1):
-        logger.info("Processing [%d/%d] %s", index, len(entries), news_item.title or news_item.url)
-
-        try:
-            summary = await extractor.extract_context(news_item)
-            summary.news_url_id = str(news_url_id)
-            if not summary.summary_text:
-                raise ValueError("Context summary is empty")
-
-            embedding = await embedding_generator.generate_embedding(summary, str(news_url_id))
-            await storage.store_embedding(embedding)
-        except Exception as exc:
-            logger.exception("Failed to process news_url_id=%s: %s", news_url_id, exc)
-            failures.append((str(news_url_id), str(exc)))
-            continue
-
-        article_id = str(news_url_id)
-        article_info[article_id] = {
-            "title": news_item.title,
-            "url": news_item.url,
-            "summary": summary.summary_text,
+    for news_url_id, item in id_to_item.items():
+        summary = storage.context_summaries.get(news_url_id)
+        article_info[news_url_id] = {
+            "title": item.title,
+            "url": item.url,
+            "summary": summary.summary_text if summary else "",
         }
 
-        assignment = await group_manager.process_new_story(embedding)
-
-        print(f"→ {news_item.title}")
-        print(f"   URL: {news_item.url}")
-        print(f"   Summary: {summary.summary_text}")
-
-        if assignment.assignment_successful and assignment.group_id:
-            group_id = assignment.group_id
-            group = await storage.get_group_by_id(group_id)
-            if group and group_id not in storage.creation_order:
-                storage.creation_order.append(group_id)
-
-            if assignment.is_new_group:
-                print(f"   Created new group {group_id}")
-            else:
-                print(
-                    "   Assigned to group {0} (similarity {1:.3f})".format(
-                        group_id, assignment.similarity_score
-                    )
-                )
+    outcome_map: Dict[str, StoryProcessingOutcome] = {}
+    missing_outcomes: List[StoryProcessingOutcome] = []
+    for outcome in batch_result.outcomes:
+        if outcome.news_url_id:
+            outcome_map[outcome.news_url_id] = outcome
         else:
-            reason = assignment.error_message or "Unknown error during grouping"
-            print(f"   Group assignment failed: {reason}")
-            failures.append((article_id, reason))
+            missing_outcomes.append(outcome)
 
-        total_processed += 1
-        if args.limit and total_processed >= args.limit:
-            break
+    print("\n=== Story Processing Details ===")
+    for outcome in missing_outcomes:
+        print(
+            f"→ {outcome.url or '(unknown url)'}\n   Status: {outcome.status} — Reason: {outcome.reason or 'n/a'}"
+        )
 
-    print("\n=== Dry-Run Summary ===")
-    print(f"Articles processed: {total_processed}")
-    print(f"Groups formed: {len(storage.groups)}")
+    for news_url_id in story_order:
+        item = id_to_item.get(news_url_id)
+        outcome = outcome_map.get(news_url_id)
+        if not item or not outcome:
+            continue
+
+        summary = article_info[news_url_id]["summary"]
+        print(f"→ {item.title or item.url or news_url_id}")
+        if item.url:
+            print(f"   URL: {item.url}")
+        if summary:
+            print(f"   Summary: {summary}")
+
+        if outcome.status == "assigned":
+            print(
+                "   Assigned to group {0} (similarity {1:.3f})".format(
+                    outcome.group_id, outcome.similarity_score or 0.0
+                )
+            )
+        elif outcome.status == "created":
+            print(f"   Created new group {outcome.group_id}")
+        elif outcome.status == "skipped":
+            print(f"   Skipped — reason: {outcome.reason or 'unspecified'}")
+        else:
+            reason = outcome.reason or outcome.error or "unknown error"
+            print(f"   Error — {reason}")
+
+        if outcome.candidate_groups:
+            print(f"   Candidate groups evaluated: {', '.join(outcome.candidate_groups)}")
+
+    metrics = batch_result.metrics
+    failures = [o for o in batch_result.outcomes if o.status == "error"]
+
+    print("\n=== Orchestrator Metrics ===")
+    print(f"Stories considered: {metrics.total_stories}")
+    print(f"Stories processed: {metrics.processed_stories}")
+    print(f"Stories skipped: {metrics.skipped_stories}")
+    print(f"Stories errored: {metrics.errored_stories}")
+    print(f"New groups created: {metrics.new_groups_created}")
+    print(f"Existing groups updated: {metrics.existing_groups_updated}")
+    if metrics.stories_throttled:
+        print(f"Stories throttled: {metrics.stories_throttled}")
+    print(
+        "Candidates evaluated: {0} (avg {1:.2f})".format(
+            metrics.candidates_evaluated,
+            metrics.average_candidates_per_story,
+        )
+    )
+    print(
+        "Timing (ms): context={0}, embedding={1}, similarity={2}, total_run={3}".format(
+            metrics.total_context_time_ms,
+            metrics.total_embedding_time_ms,
+            metrics.total_similarity_time_ms,
+            metrics.total_processing_time_ms,
+        )
+    )
+    print(f"Max parallelism observed: {metrics.max_parallelism_observed}")
+    print(f"Time budget exhausted: {metrics.time_budget_exhausted}")
+    print(f"Run window: {batch_result.started_at} → {batch_result.finished_at}")
+
     if failures:
-        print(f"Failed items: {len(failures)}")
-        seen_failures = set()
-        for news_url_id, error in failures:
-            key = (news_url_id, error)
-            if key in seen_failures:
-                continue
-            seen_failures.add(key)
-            print(f" - {news_url_id}: {error}")
+        print(f"Failures: {len(failures)}")
+        for outcome in failures:
+            print(
+                f" - {outcome.news_url_id}: {outcome.reason or outcome.error or 'unknown error'}"
+            )
 
     ordered_groups = list(storage.creation_order)
     for group_id in storage.groups.keys():
         if group_id not in ordered_groups:
             ordered_groups.append(group_id)
 
+    print("\n=== Group Summaries ===")
     for group_id in ordered_groups:
         group = storage.groups[group_id]
         members = storage.group_members.get(group_id, [])
         print(
-            f"\nGroup {group_id} — members: {len(members)}, status: {group.status.value}"
+            f"Group {group_id} — members: {len(members)}, status: {group.status.value}"
         )
         for member in members[: args.group_preview_limit]:
             info = article_info.get(member.news_url_id, {})
             title = info.get("title") or "(title unavailable)"
+            summary_text = info.get("summary") or ""
             print(
                 "   {0} (similarity {1:.3f}) — {2}".format(
-                    member.news_url_id, member.similarity_score, title
+                    member.news_url_id,
+                    member.similarity_score,
+                    title,
                 )
             )
+            if summary_text:
+                print(f"      Summary: {summary_text}")
         if len(members) > args.group_preview_limit:
             print(f"   ... {len(members) - args.group_preview_limit} more")
 
@@ -420,6 +498,49 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         type=int,
         default=5,
         help="Maximum number of members to show per group in the summary",
+    )
+    parser.add_argument(
+        "--max-parallelism",
+        type=int,
+        default=4,
+        help="Maximum concurrent stories to process when generating context and embeddings",
+    )
+    parser.add_argument(
+        "--max-candidates",
+        type=int,
+        default=8,
+        help="Maximum number of candidate groups to evaluate per story",
+    )
+    parser.add_argument(
+        "--candidate-floor",
+        type=float,
+        default=0.35,
+        help="Lower bound similarity score for candidate group consideration",
+    )
+    parser.add_argument(
+        "--max-processing-seconds",
+        type=float,
+        help="Optional time budget in seconds for processing the entire batch",
+    )
+    parser.add_argument(
+        "--max-stories",
+        type=int,
+        help="Optional limit on stories processed after prioritization",
+    )
+    parser.add_argument(
+        "--disable-recent-priority",
+        action="store_true",
+        help="Disable recency bias when ordering stories for processing",
+    )
+    parser.add_argument(
+        "--disable-relevance-priority",
+        action="store_true",
+        help="Disable relevance score bias when ordering stories for processing",
+    )
+    parser.add_argument(
+        "--reprocess-existing",
+        action="store_true",
+        help="Reprocess stories even if embeddings already exist",
     )
     parser.add_argument(
         "--max-group-size",
