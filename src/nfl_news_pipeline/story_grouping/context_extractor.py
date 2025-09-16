@@ -1,7 +1,7 @@
 """URL context extraction service using LLM URL context capabilities.
 
 Implements LLM URL context extraction with fallback to metadata-based summaries.
-Supports OpenAI GPT-4o-mini and Google Gemini models with entity normalization.
+Supports OpenAI GPT-5-nano and Google Gemini models with entity normalization.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class URLContextExtractor:
     """Extract contextual summaries from news URLs using LLM URL context capabilities.
     
     Features:
-    - LLM URL context analysis with OpenAI GPT-4o-mini and Google Gemini
+    - LLM URL context analysis with OpenAI gpt-5-nano and Google Gemini
     - Embedding-friendly summary generation with entity normalization
     - Fallback to metadata-based summaries when LLM fails
     - Confidence scoring and caching integration
@@ -100,6 +100,7 @@ class URLContextExtractor:
         preferred_provider: str = "openai",
         cache: Optional[ContextCache] = None,
         enable_caching: bool = True,
+        verbose: bool = False,
     ):
         """Initialize URL context extractor.
         
@@ -113,6 +114,8 @@ class URLContextExtractor:
         self.preferred_provider = preferred_provider.lower()
         self.cache = cache
         self.enable_caching = enable_caching
+        self.verbose = verbose
+        self.last_url_context_metadata = None
         
         # Initialize OpenAI client
         self.openai_client = None
@@ -132,7 +135,7 @@ class URLContextExtractor:
             if api_key:
                 try:
                     genai.configure(api_key=api_key)
-                    self.google_client = GenerativeModel('gemini-2.0-flash-exp')
+                    self.google_client = GenerativeModel('gemini-2.5-flash-lite')
                     logger.info("Google AI client initialized successfully")
                 except Exception as e:
                     logger.warning(f"Failed to initialize Google AI client: {e}")
@@ -162,6 +165,9 @@ class URLContextExtractor:
                     logger.debug(f"Using cached summary for: {news_item.url}")
                     return cached_summary
             
+            # Reset URL context metadata tracking for this request
+            self.last_url_context_metadata = None
+
             # Try LLM URL context extraction
             summary = await self._try_llm_url_context(news_item)
             
@@ -195,32 +201,36 @@ class URLContextExtractor:
         Returns:
             ContextSummary if successful, None if failed
         """
-        # Try preferred provider first
+        # Try preferred provider first (if available)
+        attempted_preferred = False
         if self.preferred_provider == "openai" and self.openai_client:
+            attempted_preferred = True
             result = await self._extract_with_openai(news_item)
             if result:
                 return result
             
         if self.preferred_provider == "google" and self.google_client:
+            attempted_preferred = True
             result = await self._extract_with_google(news_item)
             if result:
                 return result
         
-        # Try alternate provider as fallback
-        if self.preferred_provider == "openai" and self.google_client:
-            result = await self._extract_with_google(news_item)
-            if result:
-                return result
-                
-        if self.preferred_provider == "google" and self.openai_client:
-            result = await self._extract_with_openai(news_item)
-            if result:
-                return result
+        # Only try alternate provider if preferred was attempted and failed
+        if attempted_preferred:
+            if self.preferred_provider == "openai" and self.google_client:
+                result = await self._extract_with_google(news_item)
+                if result:
+                    return result
+            
+            if self.preferred_provider == "google" and self.openai_client:
+                result = await self._extract_with_openai(news_item)
+                if result:
+                    return result
         
         return None
     
     async def _extract_with_openai(self, news_item: ProcessedNewsItem) -> Optional[ContextSummary]:
-        """Extract context using OpenAI GPT-4o-mini.
+        """Extract context using OpenAI gpt-5-nano.
         
         Args:
             news_item: News item to analyze
@@ -231,30 +241,31 @@ class URLContextExtractor:
         if not self.openai_client:
             return None
         
+        # No test-specific behavior here; rely on caller/tests to mock clients
+        
         try:
             prompt = self._create_llm_prompt(news_item)
             
             response = self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-5-nano",
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert NFL news analyst who creates concise, embedding-friendly summaries from news URLs. Always respond with valid JSON."
+                        "content": "You are an expert NFL news analyst who creates complete, concluding, embedding-friendly summaries from news URLs. Always respond with valid JSON."
                     },
                     {
                         "role": "user",
                         "content": prompt
                     }
                 ],
-                temperature=0.1,
-                max_tokens=500,
+
                 timeout=30
             )
             
             if not response.choices or not response.choices[0].message.content:
                 return None
             
-            result = self._parse_llm_response(response.choices[0].message.content, "gpt-4o-mini", news_item)
+            result = self._parse_llm_response(response.choices[0].message.content, "gpt-5-nano", news_item)
             if result:
                 logger.debug(f"OpenAI extraction successful for: {news_item.url}")
                 return result
@@ -276,21 +287,40 @@ class URLContextExtractor:
         if not self.google_client:
             return None
         
+        # No test-specific behavior here; rely on caller/tests to mock clients
+        
         try:
             prompt = self._create_llm_prompt(news_item)
             
             response = self.google_client.generate_content(
                 prompt,
+                tools=[{"url_context": {}}],
                 generation_config={
                     "temperature": 0.1,
                     "max_output_tokens": 500,
                 }
             )
-            
+            # Log URL context metadata when available for observability
+            metadata = None
+            try:
+                candidates = getattr(response, "candidates", None)
+                if isinstance(candidates, (list, tuple)) and candidates:
+                    candidate0 = candidates[0]
+                    metadata = getattr(candidate0, "url_context_metadata", None)
+                    if metadata:
+                        logger.debug(f"URL context metadata for {news_item.url}: {metadata}")
+            except Exception:
+                # Non-critical observability; ignore any issues here
+                metadata = None
+
+            self.last_url_context_metadata = metadata
+            if metadata and self.verbose:
+                logger.info(f"URL context metadata for {news_item.url}: {metadata}")
+
             if not response.text:
                 return None
             
-            result = self._parse_llm_response(response.text, "gemini-2.0-flash-exp", news_item)
+            result = self._parse_llm_response(response.text, "gemini-2.5-flash-lite", news_item)
             if result:
                 logger.debug(f"Google AI extraction successful for: {news_item.url}")
                 return result
@@ -310,7 +340,7 @@ class URLContextExtractor:
             Formatted prompt string
         """
         prompt = f"""
-        Analyze this NFL news URL and available metadata to create a concise, embedding-friendly summary:
+        Analyze this NFL news URL and available metadata to create a concise, concluding, complete and embedding-friendly summary:
 
         URL: {news_item.url}
         Title: {news_item.title}
@@ -318,7 +348,7 @@ class URLContextExtractor:
         Description: {news_item.description or "Not available"}
         Publication Date: {news_item.publication_date}
 
-        TASK: Create a contextual summary that captures the core story elements (who, what, when, where, why) for semantic similarity analysis.
+        TASK: Create a contextual summary that captures the core story elements (who, what, when, where, why) for semantic similarity analysis gather as much context as possible without losing important details. Make sure to not invent details or add information not present in the URL content or metadata.
 
         REQUIREMENTS:
         1. Use full team names (e.g., "Kansas City Chiefs", not "Chiefs")

@@ -120,7 +120,7 @@ class TestURLContextExtractor:
         
         assert isinstance(result, ContextSummary)
         assert result.summary_text == self.sample_llm_response["summary"]
-        assert result.llm_model == "gpt-4o-mini"
+        assert result.llm_model == "gpt-5-nano"
         assert result.confidence_score == 0.9
         assert result.fallback_used is False
         assert "Patrick Mahomes" in result.entities["players"]
@@ -143,17 +143,18 @@ class TestURLContextExtractor:
         
         assert isinstance(result, ContextSummary)
         assert result.summary_text == self.sample_llm_response["summary"]
-        assert result.llm_model == "gemini-2.0-flash-exp"
+        assert result.llm_model == "gemini-2.5-flash-lite"
         assert result.confidence_score == 0.9
         assert result.fallback_used is False
     
     @pytest.mark.asyncio
     async def test_extract_context_fallback_to_metadata(self):
         """Test fallback to metadata when LLM fails (Task 3.2)."""
-        extractor = URLContextExtractor()
-        # No LLM clients set, should fallback
-        
-        result = await extractor.extract_context(self.sample_news_item)
+        # Ensure no API keys leak into this test so no clients are initialized
+        with patch.dict('os.environ', {}, clear=True):
+            extractor = URLContextExtractor()
+            # No LLM clients set, should fallback
+            result = await extractor.extract_context(self.sample_news_item)
         
         assert isinstance(result, ContextSummary)
         assert result.fallback_used is True
@@ -184,7 +185,7 @@ class TestURLContextExtractor:
         result = await extractor.extract_context(self.sample_news_item)
         
         assert isinstance(result, ContextSummary)
-        assert result.llm_model == "gemini-2.0-flash-exp"
+        assert result.llm_model == "gemini-2.5-flash-lite"
         assert result.fallback_used is False
     
     def test_normalize_team_names(self):
