@@ -74,6 +74,10 @@ class NFLNewsPipeline:
             llm_client = None
 
         self.extractor = EntitiesExtractor(entity_dict=entity_dict, llm=llm_client)
+        
+        # Story grouping orchestrator (initialized lazily)
+        self._story_grouping_orchestrator = None
+        self._story_grouping_enabled = None
 
     # -------- Public API --------
     def run(self) -> PipelineSummary:
@@ -330,11 +334,13 @@ class NFLNewsPipeline:
         inserted = 0
         updated = 0
         store_errors = 0
+        ids_by_url: Dict[str, str] = {}
         if kept:
             try:
                 res = self._retry(lambda: self.storage.store_news_items(kept))
                 inserted += res.inserted_count
                 updated += res.updated_count
+                ids_by_url = res.ids_by_url
             except Exception as e:
                 store_errors += 1
                 if self.audit:
@@ -342,6 +348,14 @@ class NFLNewsPipeline:
 
             if self.audit:
                 self.audit.log_store_summary(inserted=inserted, updated=updated, errors=store_errors)
+
+            # Run story grouping if enabled and items were stored successfully
+            if (inserted > 0 or updated > 0) and hasattr(self, '_should_run_story_grouping') and self._should_run_story_grouping():
+                try:
+                    self._run_story_grouping_for_items(kept, ids_by_url)
+                except Exception as e:
+                    if self.audit:
+                        self.audit.log_error(context=f"story_grouping {feed.name}", exc=e)
 
             # Update watermark to latest processed publication_date
             try:
@@ -359,6 +373,122 @@ class NFLNewsPipeline:
                 if self.audit:
                     self.audit.log_error(context=f"watermark {feed.name}", exc=e)
         return len(items), len(kept), inserted, updated, store_errors, metrics
+
+    def _should_run_story_grouping(self) -> bool:
+        """Check if story grouping should be enabled for this run."""
+        if self._story_grouping_enabled is None:
+            try:
+                # Check configuration
+                defaults = self.cm.get_defaults() if self.cm else None
+                if defaults and defaults.enable_story_grouping:
+                    self._story_grouping_enabled = True
+                else:
+                    # Check environment variable override
+                    env_enabled = os.environ.get("NEWS_PIPELINE_ENABLE_STORY_GROUPING", "").lower()
+                    self._story_grouping_enabled = env_enabled in {"1", "true", "yes"}
+            except Exception:
+                self._story_grouping_enabled = False
+        
+        return self._story_grouping_enabled
+
+    def _get_story_grouping_orchestrator(self):
+        """Get or create the story grouping orchestrator."""
+        if self._story_grouping_orchestrator is None:
+            try:
+                from ..orchestrator.story_grouping import (
+                    StoryGroupingOrchestrator,
+                    StoryGroupingSettings,
+                )
+                from ..group_manager import GroupManager
+                from ..embedding import EmbeddingGenerator, EmbeddingErrorHandler
+                from ..similarity import SimilarityCalculator
+                from ..story_grouping import URLContextExtractor
+                
+                # Get configuration
+                defaults = self.cm.get_defaults() if self.cm else None
+                
+                # Initialize settings from configuration
+                settings = StoryGroupingSettings()
+                if defaults:
+                    settings.max_parallelism = defaults.story_grouping_max_parallelism
+                    settings.max_stories_per_run = defaults.story_grouping_max_stories_per_run
+                    settings.reprocess_existing = defaults.story_grouping_reprocess_existing
+                
+                settings.validate()
+                
+                # Create components
+                context_extractor = URLContextExtractor()
+                embedding_generator = EmbeddingGenerator()
+                similarity_calculator = SimilarityCalculator()
+                error_handler = EmbeddingErrorHandler()
+                group_manager = GroupManager(self.storage)
+                
+                # Create orchestrator
+                self._story_grouping_orchestrator = StoryGroupingOrchestrator(
+                    context_extractor=context_extractor,
+                    embedding_generator=embedding_generator,
+                    group_manager=group_manager,
+                    similarity_calculator=similarity_calculator,
+                    error_handler=error_handler,
+                    settings=settings,
+                )
+                
+            except ImportError as e:
+                if self.audit:
+                    self.audit.log_error(context="story_grouping_init", exc=e)
+                self._story_grouping_orchestrator = None
+            except Exception as e:
+                if self.audit:
+                    self.audit.log_error(context="story_grouping_init", exc=e)
+                self._story_grouping_orchestrator = None
+        
+        return self._story_grouping_orchestrator
+
+    def _run_story_grouping_for_items(self, items: List[ProcessedNewsItem], ids_by_url: Dict[str, str]) -> None:
+        """Run story grouping for the provided items."""
+        orchestrator = self._get_story_grouping_orchestrator()
+        if orchestrator is None:
+            return
+            
+        # Filter to items that have IDs
+        items_with_ids = [item for item in items if item.url in ids_by_url]
+        if not items_with_ids:
+            return
+            
+        debug = os.environ.get("NEWS_PIPELINE_DEBUG", "").lower() in {"1", "true", "yes"}
+        if debug:
+            print(f"[pipeline] running story grouping for {len(items_with_ids)} items")
+            
+        try:
+            import asyncio
+            
+            # Run story grouping in async context
+            result = asyncio.run(orchestrator.process_batch(items_with_ids, ids_by_url))
+            
+            if debug:
+                print(f"[pipeline] story grouping completed: processed={result.metrics.processed_stories}, "
+                      f"new_groups={result.metrics.new_groups_created}, "
+                      f"updated_groups={result.metrics.existing_groups_updated}")
+                      
+            if self.audit:
+                self.audit.log_event(
+                    "story_grouping",
+                    message="batch_completed",
+                    data={
+                        "total_stories": result.metrics.total_stories,
+                        "processed_stories": result.metrics.processed_stories,
+                        "skipped_stories": result.metrics.skipped_stories,
+                        "new_groups_created": result.metrics.new_groups_created,
+                        "existing_groups_updated": result.metrics.existing_groups_updated,
+                        "processing_time_ms": result.metrics.total_processing_time_ms,
+                    },
+                )
+                
+        except Exception as e:
+            if debug:
+                print(f"[pipeline] story grouping error: {e}")
+            if self.audit:
+                self.audit.log_error(context="story_grouping_process", exc=e)
 
     @staticmethod
     def _retry(fn, attempts: int = 2, backoff_ms: int = 100):

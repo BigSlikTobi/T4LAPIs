@@ -75,6 +75,12 @@ class DefaultsConfig:
     user_agent: str = "T4LAPIs-NFLNewsPipeline/1.0"
     timeout_seconds: int = 15
     max_parallel_fetches: int = 4
+    
+    # Story grouping configuration
+    enable_story_grouping: bool = False
+    story_grouping_max_parallelism: int = 4
+    story_grouping_max_stories_per_run: Optional[int] = None
+    story_grouping_reprocess_existing: bool = False
 
 
 @dataclass
