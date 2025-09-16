@@ -563,7 +563,7 @@ class TestIntegration:
     async def test_end_to_end_with_caching(self):
         """Test complete workflow with caching enabled."""
         # Create cache and extractor
-        cache = ContextCache(ttl_hours=1)
+        cache = ContextCache(ttl_hours=1, enable_disk_cache=False)
         extractor = URLContextExtractor(cache=cache, enable_caching=True)
         
         # Create test news item
@@ -594,7 +594,7 @@ class TestIntegration:
     @pytest.mark.asyncio
     async def test_metadata_change_invalidates_cache(self):
         """Test that metadata changes result in cache miss."""
-        cache = ContextCache(ttl_hours=1)
+        cache = ContextCache(ttl_hours=1, enable_disk_cache=False)
         extractor = URLContextExtractor(cache=cache, enable_caching=True)
         
         # Create first news item

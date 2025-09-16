@@ -12,6 +12,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from uuid import uuid4
 
 # Ensure repository root is available when the script runs from scripts/
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -27,12 +28,107 @@ from src.nfl_news_pipeline.models import (
     ProcessedNewsItem,
     StoryEmbedding,
     StoryGroup,
+    StoryGroupMember,
 )
 from src.nfl_news_pipeline.similarity import SimilarityCalculator, SimilarityMetric
 from src.nfl_news_pipeline.story_grouping import URLContextExtractor
+from src.nfl_news_pipeline.group_manager import GroupManager
 
 logger = logging.getLogger("story_grouping_dry_run")
 
+
+class InMemoryGroupStorage:
+    """Minimal in-memory implementation of GroupStorageManager for dry runs."""
+
+    def __init__(self) -> None:
+        self.groups: Dict[str, StoryGroup] = {}
+        self.group_members: Dict[str, List[StoryGroupMember]] = {}
+        self.embeddings: Dict[str, StoryEmbedding] = {}
+        self.creation_order: List[str] = []
+
+        # Attributes referenced by GroupManager APIs
+        self.client = None
+        self.table_embeddings = "in_memory_story_embeddings"
+        self.table_groups = "in_memory_story_groups"
+        self.table_members = "in_memory_story_group_members"
+        self.table_summaries = "in_memory_context_summaries"
+
+    async def store_embedding(self, embedding: StoryEmbedding) -> bool:
+        embedding.validate()
+        self.embeddings[embedding.news_url_id] = embedding
+        return True
+
+    async def store_group(self, group: StoryGroup) -> bool:
+        if not group.id:
+            group.id = str(uuid4())
+        group.validate()
+        if group.id not in self.groups:
+            self.creation_order.append(group.id)
+        self.groups[group.id] = group
+        return True
+
+    async def add_member_to_group(self, group_id: str, news_url_id: str, similarity_score: float) -> bool:
+        group = self.groups.get(group_id)
+        if not group:
+            return False
+
+        member = StoryGroupMember(
+            group_id=group_id,
+            news_url_id=news_url_id,
+            similarity_score=float(similarity_score),
+            added_at=datetime.now(timezone.utc),
+        )
+        member.validate()
+
+        members = self.group_members.setdefault(group_id, [])
+        members.append(member)
+
+        group.member_count = len(members)
+        group.updated_at = datetime.now(timezone.utc)
+        self.groups[group_id] = group
+        return True
+
+    async def get_group_centroids(self) -> List[GroupCentroid]:
+        centroids: List[GroupCentroid] = []
+        for group in self.groups.values():
+            if group.centroid_embedding:
+                centroids.append(
+                    GroupCentroid(
+                        group_id=group.id or "",
+                        centroid_vector=list(group.centroid_embedding),
+                        member_count=group.member_count,
+                        last_updated=group.updated_at,
+                    )
+                )
+        return centroids
+
+    async def get_group_embeddings(self, group_id: str) -> List[StoryEmbedding]:
+        members = self.group_members.get(group_id, [])
+        embeddings: List[StoryEmbedding] = []
+        for member in members:
+            embedding = self.embeddings.get(member.news_url_id)
+            if embedding:
+                embeddings.append(embedding)
+        return embeddings
+
+    async def get_group_by_id(self, group_id: str) -> Optional[StoryGroup]:
+        return self.groups.get(group_id)
+
+    async def update_group_status(self, group_id: str, status: GroupStatus) -> bool:
+        group = self.groups.get(group_id)
+        if not group:
+            return False
+        group.status = status
+        group.updated_at = datetime.now(timezone.utc)
+        self.groups[group_id] = group
+        return True
+
+    async def get_embedding_by_url_id(self, news_url_id: str) -> Optional[StoryEmbedding]:
+        return self.embeddings.get(news_url_id)
+
+    async def check_membership_exists(self, group_id: str, news_url_id: str) -> bool:
+        members = self.group_members.get(group_id, [])
+        return any(member.news_url_id == news_url_id for member in members)
 
 def _parse_publication_date(value: Any) -> datetime:
     if isinstance(value, datetime):
@@ -182,14 +278,18 @@ async def run_dry_run(args: argparse.Namespace) -> None:
         metric=args.similarity_metric,
     )
     centroid_manager = GroupCentroidManager()
-
-    groups: Dict[str, StoryGroup] = {}
-    group_members: Dict[str, List[StoryEmbedding]] = {}
-    group_order: List[str] = []
-    group_assignments: Dict[str, List[Tuple[str, float]]] = {}
+    storage = InMemoryGroupStorage()
+    group_manager = GroupManager(
+        storage_manager=storage,
+        similarity_calculator=similarity_calculator,
+        centroid_manager=centroid_manager,
+        similarity_threshold=args.similarity_threshold,
+        max_group_size=args.max_group_size,
+    )
 
     total_processed = 0
     failures: List[Tuple[str, str]] = []
+    article_info: Dict[str, Dict[str, str]] = {}
 
     for index, (news_url_id, news_item) in enumerate(entries, start=1):
         logger.info("Processing [%d/%d] %s", index, len(entries), news_item.title or news_item.url)
@@ -201,66 +301,43 @@ async def run_dry_run(args: argparse.Namespace) -> None:
                 raise ValueError("Context summary is empty")
 
             embedding = await embedding_generator.generate_embedding(summary, str(news_url_id))
+            await storage.store_embedding(embedding)
         except Exception as exc:
             logger.exception("Failed to process news_url_id=%s: %s", news_url_id, exc)
             failures.append((str(news_url_id), str(exc)))
             continue
 
-        existing_centroids: List[GroupCentroid] = []
-        for group_id in group_order:
-            group = groups[group_id]
-            if group.centroid_embedding:
-                existing_centroids.append(
-                    GroupCentroid(
-                        group_id=group.id or group_id,
-                        centroid_vector=list(group.centroid_embedding),
-                        member_count=group.member_count,
-                        last_updated=group.updated_at,
+        article_id = str(news_url_id)
+        article_info[article_id] = {
+            "title": news_item.title,
+            "url": news_item.url,
+            "summary": summary.summary_text,
+        }
+
+        assignment = await group_manager.process_new_story(embedding)
+
+        print(f"→ {news_item.title}")
+        print(f"   URL: {news_item.url}")
+        print(f"   Summary: {summary.summary_text}")
+
+        if assignment.assignment_successful and assignment.group_id:
+            group_id = assignment.group_id
+            group = await storage.get_group_by_id(group_id)
+            if group and group_id not in storage.creation_order:
+                storage.creation_order.append(group_id)
+
+            if assignment.is_new_group:
+                print(f"   Created new group {group_id}")
+            else:
+                print(
+                    "   Assigned to group {0} (similarity {1:.3f})".format(
+                        group_id, assignment.similarity_score
                     )
                 )
-
-        best_match: Optional[Tuple[str, float]] = None
-        if existing_centroids:
-            best_match = similarity_calculator.find_best_matching_group(embedding, existing_centroids)
-
-        if best_match:
-            group_id, score = best_match
-            group = groups[group_id]
-            members = group_members[group_id]
-            members.append(embedding)
-            update_result = centroid_manager.update_group_centroid(group, members)
-            group.status = GroupStatus.UPDATED
-            groups[group_id] = group
-            group_members[group_id] = members
-            group_assignments.setdefault(group_id, []).append((str(news_url_id), score))
-
-            print(f"→ {news_item.title}")
-            print(f"   URL: {news_item.url}")
-            print(f"   Summary: {summary.summary_text}")
-            print(f"   Assigned to group {group_id} (similarity {score:.3f})")
-            if update_result.error_message:
-                print(f"   Centroid update warning: {update_result.error_message}")
         else:
-            group_id = f"group-{len(groups) + 1:03d}"
-            now = datetime.now(timezone.utc)
-            new_group = StoryGroup(
-                member_count=1,
-                status=GroupStatus.NEW,
-                tags=[],
-                centroid_embedding=list(embedding.embedding_vector),
-                created_at=now,
-                updated_at=now,
-                id=group_id,
-            )
-            groups[group_id] = new_group
-            group_members[group_id] = [embedding]
-            group_order.append(group_id)
-            group_assignments.setdefault(group_id, []).append((str(news_url_id), 1.0))
-
-            print(f"→ {news_item.title}")
-            print(f"   URL: {news_item.url}")
-            print("   Created new group {0}".format(group_id))
-            print(f"   Summary: {summary.summary_text}")
+            reason = assignment.error_message or "Unknown error during grouping"
+            print(f"   Group assignment failed: {reason}")
+            failures.append((article_id, reason))
 
         total_processed += 1
         if args.limit and total_processed >= args.limit:
@@ -268,18 +345,36 @@ async def run_dry_run(args: argparse.Namespace) -> None:
 
     print("\n=== Dry-Run Summary ===")
     print(f"Articles processed: {total_processed}")
-    print(f"Groups formed: {len(groups)}")
+    print(f"Groups formed: {len(storage.groups)}")
     if failures:
         print(f"Failed items: {len(failures)}")
+        seen_failures = set()
         for news_url_id, error in failures:
+            key = (news_url_id, error)
+            if key in seen_failures:
+                continue
+            seen_failures.add(key)
             print(f" - {news_url_id}: {error}")
 
-    for group_id in group_order:
-        group = groups[group_id]
-        members = group_assignments.get(group_id, [])
-        print(f"\nGroup {group_id} — members: {len(members)}, status: {group.status.value}")
-        for member_id, score in members[: args.group_preview_limit]:
-            print(f"   {member_id} (similarity {score:.3f})")
+    ordered_groups = list(storage.creation_order)
+    for group_id in storage.groups.keys():
+        if group_id not in ordered_groups:
+            ordered_groups.append(group_id)
+
+    for group_id in ordered_groups:
+        group = storage.groups[group_id]
+        members = storage.group_members.get(group_id, [])
+        print(
+            f"\nGroup {group_id} — members: {len(members)}, status: {group.status.value}"
+        )
+        for member in members[: args.group_preview_limit]:
+            info = article_info.get(member.news_url_id, {})
+            title = info.get("title") or "(title unavailable)"
+            print(
+                "   {0} (similarity {1:.3f}) — {2}".format(
+                    member.news_url_id, member.similarity_score, title
+                )
+            )
         if len(members) > args.group_preview_limit:
             print(f"   ... {len(members) - args.group_preview_limit} more")
 
@@ -326,6 +421,12 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         type=int,
         default=5,
         help="Maximum number of members to show per group in the summary",
+    )
+    parser.add_argument(
+        "--max-group-size",
+        type=int,
+        default=50,
+        help="Maximum number of stories allowed per group before forcing a new group",
     )
     parser.add_argument(
         "--log-level",

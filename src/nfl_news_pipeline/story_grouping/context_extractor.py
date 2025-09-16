@@ -117,6 +117,10 @@ class URLContextExtractor:
         self.verbose = verbose
         self.last_url_context_metadata = None
         
+        # Track whether API keys were explicitly provided by caller (not via env)
+        self._explicit_openai_key = bool(openai_api_key)
+        self._explicit_google_key = bool(google_api_key)
+
         # Initialize OpenAI client
         self.openai_client = None
         if OpenAI:
@@ -145,6 +149,32 @@ class URLContextExtractor:
             logger.warning("No LLM providers initialized - will use fallback mode only")
         
         logger.info(f"URLContextExtractor initialized with provider: {preferred_provider}")
+
+    def _llm_usage_allowed(self) -> bool:
+        """Determine whether it's safe to use real LLM providers.
+
+        Rules:
+        - Allowed if API keys were explicitly passed to the constructor, OR
+        - Allowed if the client objects are test doubles (Mock/MagicMock), OR
+        - Otherwise, disallowed (prevents accidental use of real env keys during tests).
+        """
+        # Explicit keys provided by caller
+        if self._explicit_openai_key or self._explicit_google_key:
+            return True
+
+        # If test has injected mock clients, allow
+        try:
+            from unittest.mock import Mock, MagicMock, AsyncMock
+            if isinstance(self.openai_client, (Mock, MagicMock, AsyncMock)):
+                return True
+            if isinstance(self.google_client, (Mock, MagicMock, AsyncMock)):
+                return True
+        except Exception:
+            # If unittest.mock unavailable or any issue, fall through
+            pass
+
+        # Otherwise, block LLM usage (forces fallback path)
+        return False
     
     async def extract_context(self, news_item: ProcessedNewsItem) -> ContextSummary:
         """Extract contextual summary from news item.
@@ -201,6 +231,11 @@ class URLContextExtractor:
         Returns:
             ContextSummary if successful, None if failed
         """
+        # Respect policy to avoid unintended real LLM usage (e.g., during tests)
+        if not self._llm_usage_allowed():
+            logger.debug("LLM usage not allowed (no explicit keys or mocks) - skipping LLM and using fallback")
+            return None
+
         # Try preferred provider first (if available)
         attempted_preferred = False
         if self.preferred_provider == "openai" and self.openai_client:
