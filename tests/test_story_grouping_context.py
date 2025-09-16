@@ -562,67 +562,70 @@ class TestIntegration:
     @pytest.mark.asyncio
     async def test_end_to_end_with_caching(self):
         """Test complete workflow with caching enabled."""
-        # Create cache and extractor
-        cache = ContextCache(ttl_hours=1)
-        extractor = URLContextExtractor(cache=cache, enable_caching=True)
+        # Ensure no real LLM clients are initialized (force fallback path)
+        with patch.dict('os.environ', {}, clear=True):
+            # Create cache and extractor (disable disk cache to avoid cross-test contamination)
+            cache = ContextCache(ttl_hours=1, enable_disk_cache=False)
+            extractor = URLContextExtractor(cache=cache, enable_caching=True)
         
-        # Create test news item
-        news_item = ProcessedNewsItem(
-            url="https://example.com/test-article",
-            title="Test Article Title",
-            publication_date=datetime.now(timezone.utc),
-            source_name="test_source",
-            publisher="Test Publisher"
-        )
+            # Create test news item
+            news_item = ProcessedNewsItem(
+                url="https://example.com/test-article",
+                title="Test Article Title",
+                publication_date=datetime.now(timezone.utc),
+                source_name="test_source",
+                publisher="Test Publisher"
+            )
         
-        # First call - should use fallback (no LLM clients configured)
-        result1 = await extractor.extract_context(news_item)
+            # First call - should use fallback (no LLM clients configured)
+            result1 = await extractor.extract_context(news_item)
         
-        assert result1.fallback_used is True
-        initial_misses = cache.cache_misses
-        initial_hits = cache.cache_hits
+            assert result1.fallback_used is True
+            initial_misses = cache.cache_misses
+            initial_hits = cache.cache_hits
         
-        # Second call - should hit cache (if cache is working)
-        result2 = await extractor.extract_context(news_item)
+            # Second call - should hit cache (if cache is working)
+            result2 = await extractor.extract_context(news_item)
         
-        assert result2.summary_text == result1.summary_text
-        # Cache should either hit or miss, but total requests should increase
-        final_requests = cache.cache_hits + cache.cache_misses
-        initial_requests = initial_hits + initial_misses
-        assert final_requests > initial_requests
+            assert result2.summary_text == result1.summary_text
+            # Cache should either hit or miss, but total requests should increase
+            final_requests = cache.cache_hits + cache.cache_misses
+            initial_requests = initial_hits + initial_misses
+            assert final_requests > initial_requests
     
     @pytest.mark.asyncio
     async def test_metadata_change_invalidates_cache(self):
         """Test that metadata changes result in cache miss."""
-        cache = ContextCache(ttl_hours=1)
-        extractor = URLContextExtractor(cache=cache, enable_caching=True)
-        
-        # Create first news item
-        news_item1 = ProcessedNewsItem(
-            url="https://example.com/test-article",
-            title="Original Title",
-            publication_date=datetime.now(timezone.utc),
-            source_name="test_source",
-            publisher="Test Publisher"
-        )
-        
-        # Create second news item with same URL but different title
-        news_item2 = ProcessedNewsItem(
-            url="https://example.com/test-article",
-            title="Updated Title",  # Different title
-            publication_date=datetime.now(timezone.utc),
-            source_name="test_source",
-            publisher="Test Publisher"
-        )
-        
-        # First call
-        result1 = await extractor.extract_context(news_item1)
-        initial_requests = cache.cache_hits + cache.cache_misses
-        
-        # Second call with different metadata should process differently
-        result2 = await extractor.extract_context(news_item2)
-        final_requests = cache.cache_hits + cache.cache_misses
-        
-        # Should have processed both items (total requests increased)
-        assert final_requests > initial_requests
-        assert result1.summary_text != result2.summary_text
+        with patch.dict('os.environ', {}, clear=True):
+            cache = ContextCache(ttl_hours=1, enable_disk_cache=False)
+            extractor = URLContextExtractor(cache=cache, enable_caching=True)
+            
+            # Create first news item
+            news_item1 = ProcessedNewsItem(
+                url="https://example.com/test-article",
+                title="Original Title",
+                publication_date=datetime.now(timezone.utc),
+                source_name="test_source",
+                publisher="Test Publisher"
+            )
+            
+            # Create second news item with same URL but different title
+            news_item2 = ProcessedNewsItem(
+                url="https://example.com/test-article",
+                title="Updated Title",  # Different title
+                publication_date=datetime.now(timezone.utc),
+                source_name="test_source",
+                publisher="Test Publisher"
+            )
+            
+            # First call
+            result1 = await extractor.extract_context(news_item1)
+            initial_requests = cache.cache_hits + cache.cache_misses
+            
+            # Second call with different metadata should process differently
+            result2 = await extractor.extract_context(news_item2)
+            final_requests = cache.cache_hits + cache.cache_misses
+            
+            # Should have processed both items (total requests increased)
+            assert final_requests > initial_requests
+            assert result1.summary_text != result2.summary_text
