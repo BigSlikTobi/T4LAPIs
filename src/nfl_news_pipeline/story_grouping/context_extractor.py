@@ -348,6 +348,57 @@ class URLContextExtractor:
                 news_item,
             )
             if result:
+                # Attach token usage to summary for accurate cost estimation later
+                # Be tolerant of mocks and non-numeric values
+                def _to_int_or_none(val):
+                    try:
+                        if val is None:
+                            return None
+                        # Accept ints/floats directly
+                        if isinstance(val, (int, float)):
+                            return int(val)
+                        # Accept numeric strings
+                        if isinstance(val, str):
+                            s = val.strip()
+                            if s == "":
+                                return None
+                            # Try int, then float
+                            try:
+                                return int(s)
+                            except Exception:
+                                return int(float(s))
+                        # For mocks or other types, skip
+                        return None
+                    except Exception:
+                        return None
+
+                # Safely extract token usage information from response if available
+                input_tokens = None
+                output_tokens = None
+                cached_input_tokens = None
+
+                try:
+                    usage = getattr(response, "usage", None)
+                    if usage is not None:
+                        # Handle both dict-like and attribute-like access
+                        def _get(u, key):
+                            try:
+                                if isinstance(u, dict):
+                                    return u.get(key)
+                                return getattr(u, key)
+                            except Exception:
+                                return None
+
+                        input_tokens = _get(usage, "prompt_tokens") or _get(usage, "input_tokens")
+                        output_tokens = _get(usage, "completion_tokens") or _get(usage, "output_tokens")
+                        cached_input_tokens = _get(usage, "cached_input_tokens")
+                except Exception:
+                    # If anything goes wrong, leave tokens as None
+                    input_tokens = output_tokens = cached_input_tokens = None
+
+                result.input_tokens = _to_int_or_none(input_tokens)
+                result.output_tokens = _to_int_or_none(output_tokens)
+                result.cached_input_tokens = _to_int_or_none(cached_input_tokens)
                 logger.debug(f"OpenAI extraction successful for: {news_item.url}")
                 return result
 

@@ -13,22 +13,17 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from urllib.parse import urlparse
-
 import numpy as np
 
-from ..embedding import EmbeddingErrorHandler, EmbeddingGenerator, EmbeddingStorageManager
-from ..group_manager import GroupAssignmentResult, GroupManager
-from ..models import (
-    ContextSummary,
-    GroupCentroid,
-    ProcessedNewsItem,
-    StoryEmbedding,
-    EMBEDDING_DIM,
-)
+from ..embedding import EmbeddingGenerator, EmbeddingStorageManager, EmbeddingErrorHandler
+from ..group_manager import GroupManager, GroupAssignmentResult
+from ..models import ContextSummary, GroupCentroid, ProcessedNewsItem, StoryEmbedding, EMBEDDING_DIM
 from ..similarity import SimilarityCalculator, SimilarityMetric
 from ..story_grouping import URLContextExtractor, generate_metadata_hash
+from ..monitoring import GroupingMetricsCollector, GroupingAlertsManager, GroupingAnalytics
+from ..logging.audit import AuditLogger
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +139,8 @@ class StoryGroupingOrchestrator:
         embedding_generator: EmbeddingGenerator,
         error_handler: Optional[EmbeddingErrorHandler] = None,
         settings: Optional[StoryGroupingSettings] = None,
+        audit_logger: Optional[AuditLogger] = None,
+        enable_monitoring: bool = True,
         embedding_storage: Optional[EmbeddingStorageManager] = None,
         max_concurrent_stories: Optional[int] = None,
         enable_fallbacks: bool = False,
@@ -165,6 +162,20 @@ class StoryGroupingOrchestrator:
 
         # Reuse the similarity calculator from the group manager so thresholds stay aligned
         self.similarity_calc: SimilarityCalculator = group_manager.similarity_calc
+        
+        # Initialize monitoring and analytics
+        self.enable_monitoring = enable_monitoring
+        if enable_monitoring:
+            self.metrics_collector = GroupingMetricsCollector(audit_logger)
+            self.alerts_manager = GroupingAlertsManager(self.metrics_collector)
+            self.analytics = GroupingAnalytics(self.metrics_collector)
+            
+            # Set up alert callbacks
+            self.alerts_manager.add_alert_callback(self._handle_alert)
+        else:
+            self.metrics_collector = None
+            self.alerts_manager = None
+            self.analytics = None
 
     async def process_batch(
         self,
@@ -267,6 +278,19 @@ class StoryGroupingOrchestrator:
         self._aggregate_metrics(metrics, outcomes)
         if throttled or metrics.time_budget_exhausted:
             metrics.time_budget_exhausted = metrics.time_budget_exhausted or throttled
+
+        # Update monitoring after batch completion
+        if self.enable_monitoring and self.metrics_collector:
+            # Update quality metrics
+            self.metrics_collector.update_quality_metrics()
+            
+            # Check for alerts
+            if self.alerts_manager:
+                new_alerts = self.alerts_manager.check_thresholds()
+                self.alerts_manager.auto_resolve_alerts()
+                
+                if new_alerts:
+                    logger.info(f"Generated {len(new_alerts)} new alerts after batch processing")
 
         return StoryGroupingBatchResult(outcomes=outcomes, metrics=metrics, started_at=started_at, finished_at=finished_at)
 
@@ -606,6 +630,9 @@ class StoryGroupingOrchestrator:
                 )
                 if status == "error":
                     result.reason = "group_assignment_failed"
+                
+                # Record monitoring data
+                self._record_decision_metrics(result, summary)
                 return result
 
             # Otherwise create a new group
@@ -616,7 +643,8 @@ class StoryGroupingOrchestrator:
                         await self.group_manager.add_group_tags(group_id, summary.key_topics)
                     except Exception as tag_error:
                         logger.debug("Failed to add tags to group %s: %s", group_id, tag_error)
-                return StoryProcessingOutcome(
+
+                result = StoryProcessingOutcome(
                     news_url_id=news_url_id,
                     url=news_item.url,
                     status="created",
@@ -631,6 +659,10 @@ class StoryGroupingOrchestrator:
                     embedding_time_ms=int(embedding_time * 1000),
                     similarity_time_ms=int(similarity_time * 1000),
                 )
+
+                # Record monitoring data
+                self._record_decision_metrics(result, summary)
+                return result
 
             return StoryProcessingOutcome(
                 news_url_id=news_url_id,
@@ -648,7 +680,7 @@ class StoryGroupingOrchestrator:
 
         except Exception as exc:  # pragma: no cover - ensures robust error reporting in prod
             logger.exception("Error processing story %s", news_item.url)
-            return StoryProcessingOutcome(
+            result = StoryProcessingOutcome(
                 news_url_id=news_url_id,
                 url=news_item.url,
                 status="error",
@@ -662,6 +694,10 @@ class StoryGroupingOrchestrator:
                 embedding_time_ms=int(embedding_time * 1000),
                 similarity_time_ms=int(similarity_time * 1000),
             )
+            
+            # Record monitoring data for errors too
+            self._record_decision_metrics(result, summary)
+            return result
 
     async def _load_centroids(self) -> Tuple[List[GroupCentroid], List[np.ndarray]]:
         """Load centroid records and corresponding numpy vectors once per batch."""
@@ -798,3 +834,136 @@ class StoryGroupingOrchestrator:
             metrics.average_candidates_per_story = sum(candidate_counts) / len(candidate_counts)
 
         metrics.stories_throttled += sum(1 for o in skipped if o.reason in {"time_budget_exhausted", "max_stories_limit"})
+
+    def _record_decision_metrics(self, outcome: StoryProcessingOutcome, summary: Optional[ContextSummary] = None) -> None:
+        """Record metrics and monitoring data for a story processing outcome."""
+        if not self.enable_monitoring or not self.metrics_collector:
+            return
+        
+        # Record the grouping decision
+        decision_type = "skipped"
+        if outcome.status == "assigned":
+            decision_type = "existing_group"
+        elif outcome.status == "created":
+            decision_type = "new_group"
+        
+        self.metrics_collector.record_grouping_decision(
+            story_id=outcome.news_url_id,
+            decision_type=decision_type,
+            similarity_score=outcome.similarity_score,
+            group_id=outcome.group_id,
+            candidate_count=len(outcome.candidate_groups),
+            processing_time_ms=outcome.processing_time_ms,
+            reason=outcome.reason,
+        )
+        
+        # Record performance metrics
+        self.metrics_collector.record_performance_metrics(
+            context_time_ms=outcome.context_time_ms,
+            embedding_time_ms=outcome.embedding_time_ms,
+            similarity_time_ms=outcome.similarity_time_ms,
+            total_time_ms=outcome.processing_time_ms,
+        )
+        
+        # Record LLM costs if available from summary
+        if summary and hasattr(summary, 'llm_model'):
+            # Prefer detailed token usage when available
+            input_tokens = int(getattr(summary, 'input_tokens', 0) or 0)
+            output_tokens = int(getattr(summary, 'output_tokens', 0) or 0)
+            cached_input_tokens = int(getattr(summary, 'cached_input_tokens', 0) or 0)
+
+            total_tokens = input_tokens + output_tokens + cached_input_tokens
+
+            if total_tokens > 0:
+                estimated_cost = self._estimate_llm_cost(
+                    summary.llm_model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cached_input_tokens=cached_input_tokens,
+                )
+                if estimated_cost > 0:
+                    self.metrics_collector.record_llm_cost(
+                        model=summary.llm_model,
+                        tokens=total_tokens,
+                        cost=estimated_cost,
+                        operation="context_extraction",
+                    )
+            # Backward compatibility: if older field exists, use it
+            elif hasattr(summary, 'tokens_used'):
+                tokens_used = int(getattr(summary, 'tokens_used', 0) or 0)
+                if tokens_used > 0:
+                    estimated_cost = self._estimate_llm_cost(summary.llm_model, input_tokens=tokens_used)
+                    if estimated_cost > 0:
+                        self.metrics_collector.record_llm_cost(
+                            model=summary.llm_model,
+                            tokens=tokens_used,
+                            cost=estimated_cost,
+                            operation="context_extraction",
+                        )
+
+    def _estimate_llm_cost(
+        self,
+        model: str,
+        *,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cached_input_tokens: int = 0,
+    ) -> float:
+        """Estimate LLM API cost.
+
+        For gpt-5-nano, use tiered pricing:
+          - input: $0.00005 / 1K tokens
+          - cached input: $0.000005 / 1K tokens
+          - output: $0.0004 / 1K tokens
+        For other models, fall back to a flat per-1K token rate using total tokens.
+        """
+        model = (model or "").strip().lower()
+
+        if model == "gpt-5-nano":
+            return (
+                (input_tokens / 1000.0) * 0.00005
+                + (cached_input_tokens / 1000.0) * 0.000005
+                + (output_tokens / 1000.0) * 0.0004
+            )
+
+        # Fallback rates per 1K tokens (simple, single-rate)
+        cost_per_1k_tokens = {
+            "gpt-4o-mini": 0.00015,
+            "gpt-3.5-turbo": 0.0005,
+            "gemini-2.5-lite": 0.0001,
+        }
+        rate = cost_per_1k_tokens.get(model, 0.0001)
+        total_tokens = input_tokens + output_tokens + cached_input_tokens
+        return (total_tokens / 1000.0) * rate
+
+    def _handle_alert(self, alert) -> None:
+        """Handle monitoring alerts."""
+        logger.warning(
+            f"Story grouping alert: {alert.title} - {alert.description} "
+            f"(severity: {alert.severity.value}, value: {alert.current_value:.2f})"
+        )
+
+    def get_monitoring_summary(self) -> Optional[Dict[str, Any]]:
+        """Get current monitoring and analytics summary."""
+        if not self.enable_monitoring or not self.analytics:
+            return None
+        
+        return self.analytics.get_real_time_dashboard_data()
+
+    def check_alerts(self) -> List:
+        """Check for any active alerts and return them."""
+        if not self.enable_monitoring or not self.alerts_manager:
+            return []
+        
+        # Check thresholds and auto-resolve alerts
+        new_alerts = self.alerts_manager.check_thresholds()
+        self.alerts_manager.auto_resolve_alerts()
+        
+        return new_alerts
+
+    def generate_analytics_report(self, time_window_hours: int = 24) -> Optional[Dict[str, Any]]:
+        """Generate comprehensive analytics report."""
+        if not self.enable_monitoring or not self.analytics:
+            return None
+        
+        return self.analytics.generate_comprehensive_report(time_window_hours)
