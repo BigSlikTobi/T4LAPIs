@@ -1,26 +1,24 @@
 #!/bin/bash
-"""
-Story Grouping Feature Deployment Script
-=========================================
-
-This script helps deploy and configure the NFL News Pipeline Story Grouping feature.
-It validates environment setup, initializes configuration, and provides deployment guidance.
-
-Usage:
-    ./scripts/deploy_story_grouping.sh [--dry-run] [--config-path=path] [--environment=env]
-
-Options:
-    --dry-run                   Validate setup without making changes
-    --config-path=PATH         Path to story grouping config file (default: story_grouping_config.yaml)
-    --environment=ENV          Deployment environment (dev, staging, prod)
-    --help                     Show this help message
-
-Requirements:
-    - Python 3.11+
-    - All dependencies installed (pip install -r requirements.txt)
-    - Environment variables configured (.env file or system environment)
-    - Supabase database setup and accessible
-"""
+# Story Grouping Feature Deployment Script
+# =========================================
+#
+# This script helps deploy and configure the NFL News Pipeline Story Grouping feature.
+# It validates environment setup, initializes configuration, and provides deployment guidance.
+#
+# Usage:
+#   ./scripts/deploy_story_grouping.sh [--dry-run] [--config-path=path] [--environment=env]
+#
+# Options:
+#   --dry-run                 Validate setup without making changes
+#   --config-path=PATH        Path to story grouping config file (default: story_grouping_config.yaml)
+#   --environment=ENV         Deployment environment (dev, staging, prod)
+#   --help                    Show this help message
+#
+# Requirements:
+#   - Python 3.11+
+#   - All dependencies installed (pip install -r requirements.txt)
+#   - Environment variables configured (.env file or system environment)
+#   - Supabase database setup and accessible
 
 set -euo pipefail
 
@@ -157,41 +155,38 @@ check_dependencies() {
 check_environment_variables() {
     log_info "Checking environment variables..."
     
+    # Load .env first so checks see the values
+    if [[ -f "$PROJECT_ROOT/.env" ]]; then
+        log_success "Found .env file"
+        # Export all variables defined in .env to child processes
+        set -a
+        # shellcheck disable=SC1090
+        source "$PROJECT_ROOT/.env"
+        set +a
+    else
+        log_warning "No .env file found. Copy .env.example to .env and configure it."
+    fi
+
     local missing_vars=()
-    local optional_vars=()
-    
+
     # Required variables
-    if [[ -z "${SUPABASE_URL:-}" ]]; then
-        missing_vars+=("SUPABASE_URL")
-    fi
-    
-    if [[ -z "${SUPABASE_KEY:-}" ]]; then
-        missing_vars+=("SUPABASE_KEY")
-    fi
-    
+    [[ -z "${SUPABASE_URL:-}" ]] && missing_vars+=("SUPABASE_URL")
+    [[ -z "${SUPABASE_KEY:-}" ]] && missing_vars+=("SUPABASE_KEY")
+
     # LLM API keys (at least one required)
     if [[ -z "${OPENAI_API_KEY:-}" && -z "${GOOGLE_API_KEY:-}" && -z "${DEEPSEEK_API_KEY:-}" ]]; then
         missing_vars+=("OPENAI_API_KEY or GOOGLE_API_KEY or DEEPSEEK_API_KEY")
     fi
-    
-    # Check for .env file
-    if [[ -f "$PROJECT_ROOT/.env" ]]; then
-        log_success "Found .env file"
-        source "$PROJECT_ROOT/.env"
-    else
-        log_warning "No .env file found. Copy .env.example to .env and configure it."
-    fi
-    
+
     if [[ ${#missing_vars[@]} -gt 0 ]]; then
         log_error "Missing required environment variables:"
         for var in "${missing_vars[@]}"; do
             echo "  - $var"
         done
         return 1
-    else
-        log_success "All required environment variables are set"
     fi
-    
+
+    log_success "All required environment variables are set"
     return 0
 }
 
@@ -265,7 +260,7 @@ try:
     client = create_client(url, key)
     
     # Test basic connectivity
-    response = client.table('news_items').select('id').limit(1).execute()
+    response = client.table('news_urls').select('id').limit(1).execute()
     print(f'Database connection successful')
     
 except Exception as e:
@@ -286,19 +281,19 @@ check_migration() {
     
     cd "$PROJECT_ROOT"
     python3 -c "
+import os
 import sys
-sys.path.insert(0, 'src')
 try:
-    from nfl_news_pipeline.storage.story_group_storage import GroupStorageManager
-    from nfl_news_pipeline.storage.database_manager import get_supabase_client
-    
-    client = get_supabase_client()
-    storage = GroupStorageManager(client)
-    
+    from supabase import create_client
+    url = os.getenv('SUPABASE_URL')
+    key = os.getenv('SUPABASE_KEY')
+    if not url or not key:
+        print('Database credentials not found in environment')
+        sys.exit(1)
+    client = create_client(url, key)
     # Test if story grouping tables exist
-    response = client.table('story_groups').select('id').limit(1).execute()
+    client.table('story_groups').select('id').limit(1).execute()
     print('Story grouping tables are available')
-    
 except Exception as e:
     print(f'Story grouping schema check failed: {e}')
     print('Please ensure story grouping database migration has been run')
@@ -322,21 +317,63 @@ test_story_grouping() {
 import sys
 sys.path.insert(0, 'src')
 try:
+    import os
     from nfl_news_pipeline.story_grouping_config import get_story_grouping_config
-    from nfl_news_pipeline.orchestrator.story_grouping import StoryGroupingOrchestrator
-    from nfl_news_pipeline.storage.database_manager import get_supabase_client
-    
+    from nfl_news_pipeline.orchestrator.story_grouping import StoryGroupingOrchestrator, StoryGroupingSettings
+    from nfl_news_pipeline.similarity import SimilarityCalculator, SimilarityMetric
+    from nfl_news_pipeline.centroid_manager import GroupCentroidManager
+    from nfl_news_pipeline.group_manager import GroupManager as CoreGroupManager, GroupStorageManager as CoreGroupStorageManager
+    from nfl_news_pipeline.story_grouping import URLContextExtractor
+    from nfl_news_pipeline.embedding import EmbeddingGenerator
+    from core.db.database_init import get_supabase_client
+
     # Load configuration
     config = get_story_grouping_config('$CONFIG_PATH')
     settings = config.get_orchestrator_settings()
-    
-    # Initialize orchestrator
+
+    # Initialize components
     client = get_supabase_client()
-    orchestrator = StoryGroupingOrchestrator(client, settings)
-    
+    if client is None:
+        print('Story grouping test failed: Supabase client is not initialized')
+        sys.exit(1)
+
+    storage = CoreGroupStorageManager(client)
+    metric_map = {
+        'cosine': SimilarityMetric.COSINE,
+        'euclidean': SimilarityMetric.EUCLIDEAN,
+        'dot_product': SimilarityMetric.DOT_PRODUCT,
+    }
+    sim_metric = metric_map.get(config.similarity.metric, SimilarityMetric.COSINE)
+    sim_calc = SimilarityCalculator(similarity_threshold=config.similarity.threshold, metric=sim_metric)
+    centroid_mgr = GroupCentroidManager()
+    group_manager = CoreGroupManager(
+        storage_manager=storage,
+        similarity_calculator=sim_calc,
+        centroid_manager=centroid_mgr,
+        similarity_threshold=config.similarity.threshold,
+        max_group_size=config.grouping.max_group_size,
+    )
+
+    context_extractor = URLContextExtractor(
+        preferred_provider=config.llm.provider,
+    )
+    embedding_generator = EmbeddingGenerator(
+        openai_api_key=os.getenv('OPENAI_API_KEY'),
+        openai_model=config.embedding.model_name,
+        batch_size=config.embedding.batch_size,
+        use_openai_primary=True,
+    )
+
+    orchestrator = StoryGroupingOrchestrator(
+        group_manager=group_manager,
+        context_extractor=context_extractor,
+        embedding_generator=embedding_generator,
+        settings=settings,
+    )
+
     print('Story grouping orchestrator initialized successfully')
     print(f'Configuration: {settings.max_parallelism} max parallelism, {settings.max_candidates} max candidates')
-    
+
 except Exception as e:
     print(f'Story grouping test failed: {e}')
     sys.exit(1)

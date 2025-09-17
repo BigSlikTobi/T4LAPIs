@@ -6,7 +6,7 @@ version: 1
 # LLM Configuration for URL context extraction
 llm:
   provider: "openai"  # or "google", "deepseek"
-  model: "gpt-4o-mini"  # or "gemini-2.5-lite", "deepseek-chat"
+  model: "gpt-5-nano"  # or "gemini-2.5-lite", "deepseek-chat"
   api_key_env: "OPENAI_API_KEY"  # Environment variable name for API key
   max_tokens: 500
   temperature: 0.1
@@ -15,8 +15,8 @@ llm:
 
 # Embedding Configuration
 embedding:
-  model_name: "all-MiniLM-L6-v2"
-  dimension: 384
+  model_name: "text-embedding-3-small"
+  dimension: 1536
   batch_size: 32
   cache_ttl_hours: 24
   normalize_vectors: true

@@ -53,7 +53,8 @@ try:
         StoryGroupingConfig,
         StoryGroupingConfigError,
     )
-    from nfl_news_pipeline.storage.database_manager import get_supabase_client
+    # Use centralized Supabase client from core package
+    from core.db.database_init import get_supabase_client
 except ImportError as e:
     print(f"Error importing story grouping modules: {e}")
     print("Please ensure all dependencies are installed: pip install -r requirements.txt")
@@ -239,7 +240,8 @@ class DeploymentValidator:
             client = get_supabase_client()
             
             # Test basic connectivity
-            response = client.table('news_items').select('id').limit(1).execute()
+            # Verify base pipeline table exists
+            response = client.table('news_urls').select('id').limit(1).execute()
             self._print_status("Database connection OK", "success")
             
             # Check story grouping tables
@@ -263,17 +265,58 @@ class DeploymentValidator:
             # Import orchestrator components
             from nfl_news_pipeline.orchestrator.story_grouping import (
                 StoryGroupingOrchestrator,
-                StoryGroupingSettings
+                StoryGroupingSettings,
             )
+            from nfl_news_pipeline.similarity import SimilarityCalculator, SimilarityMetric
+            from nfl_news_pipeline.centroid_manager import GroupCentroidManager
+            from nfl_news_pipeline.group_manager import GroupManager as CoreGroupManager, GroupStorageManager as CoreGroupStorageManager
+            from nfl_news_pipeline.story_grouping import URLContextExtractor
+            from nfl_news_pipeline.embedding import EmbeddingGenerator
             
             # Load configuration
             manager = StoryGroupingConfigManager(self.config_path)
             config = manager.load_config()
             settings = config.get_orchestrator_settings()
             
-            # Test orchestrator initialization
+            # Build minimal component graph for orchestrator initialization
             client = get_supabase_client()
-            orchestrator = StoryGroupingOrchestrator(client, settings)
+
+            # Storage and managers
+            storage = CoreGroupStorageManager(client)
+            metric_map = {
+                "cosine": SimilarityMetric.COSINE,
+                "euclidean": SimilarityMetric.EUCLIDEAN,
+                "dot_product": SimilarityMetric.DOT_PRODUCT,
+            }
+            sim_metric = metric_map.get(config.similarity.metric, SimilarityMetric.COSINE)
+            sim_calc = SimilarityCalculator(similarity_threshold=config.similarity.threshold, metric=sim_metric)
+            centroid_mgr = GroupCentroidManager()
+            group_manager = CoreGroupManager(
+                storage_manager=storage,
+                similarity_calculator=sim_calc,
+                centroid_manager=centroid_mgr,
+                similarity_threshold=config.similarity.threshold,
+                max_group_size=config.grouping.max_group_size,
+            )
+
+            # Context and embeddings
+            context_extractor = URLContextExtractor(
+                preferred_provider=config.llm.provider,
+            )
+            embedding_generator = EmbeddingGenerator(
+                openai_api_key=os.getenv("OPENAI_API_KEY"),
+                openai_model=config.embedding.model_name,
+                batch_size=config.embedding.batch_size,
+                use_openai_primary=True,
+            )
+
+            # Test orchestrator initialization (keyword-only args)
+            orchestrator = StoryGroupingOrchestrator(
+                group_manager=group_manager,
+                context_extractor=context_extractor,
+                embedding_generator=embedding_generator,
+                settings=settings,
+            )
             
             self._print_status("Story grouping orchestrator initialized", "success")
             

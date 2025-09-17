@@ -25,8 +25,8 @@ llm:
 
 # Embedding Configuration
 embedding:
-  model_name: "all-MiniLM-L6-v2"
-  dimension: 384
+  model_name: "text-embedding-3-small"
+  dimension: 1536
   batch_size: 32
   cache_ttl_hours: 24
   normalize_vectors: true
@@ -87,7 +87,7 @@ monitoring:
 - **max_retries**: Number of retry attempts for failed requests
 
 #### Embedding Configuration
-- **model_name**: Sentence transformer model for embeddings
+- **model_name**: Embedding model name (default: OpenAI "text-embedding-3-small"). A local sentence-transformers model is used as a fallback when OpenAI is unavailable.
 - **dimension**: Expected embedding vector dimension
 - **batch_size**: Batch size for embedding generation
 - **cache_ttl_hours**: Cache time-to-live for embeddings
@@ -323,7 +323,8 @@ llm:
   max_retries: 3
 
 embedding:
-  model_name: "all-MiniLM-L6-v2"  # Good balance of speed and quality
+  model_name: "text-embedding-3-small"  # Default primary embedding model
+  dimension: 1536
   batch_size: 32
   cache_ttl_hours: 24
 

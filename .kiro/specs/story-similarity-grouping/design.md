@@ -257,7 +257,7 @@ class GroupStorageManager:
 CREATE TABLE story_embeddings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     news_url_id UUID NOT NULL REFERENCES news_urls(id) ON DELETE CASCADE,
-    embedding_vector VECTOR(384), -- Adjust dimension based on model
+    embedding_vector VECTOR(1536), -- Default matches OpenAI text-embedding-3-small; adjust if using a different model
     model_name TEXT NOT NULL,
     model_version TEXT NOT NULL,
     summary_text TEXT NOT NULL,
@@ -277,7 +277,7 @@ USING ivfflat (embedding_vector vector_cosine_ops) WITH (lists = 100);
 ```sql
 CREATE TABLE story_groups (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    centroid_embedding VECTOR(384),
+    centroid_embedding VECTOR(1536),
     member_count INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'new', -- 'new', 'updated', 'stable'
     tags TEXT[] DEFAULT '{}',
@@ -459,8 +459,8 @@ class StoryGroupingErrorHandler:
    - Monitor and alert on cost thresholds
 
 2. **Embedding Efficiency**
-   - Cache embeddings to avoid regeneration
-   - Use efficient embedding models (384-dimensional vs 1536)
+    - Cache embeddings to avoid regeneration
+    - Use efficient embedding models (OpenAI 1536-dimensional default; 384-dimensional applies to fallback local models)
    - Implement batch embedding generation
    - Optimize vector storage and retrieval
 
@@ -528,15 +528,15 @@ class GroupingMetrics:
 # story_grouping_config.yaml
 llm:
   provider: "openai"  # or "google"
-  model: "gpt-4o-mini"  # or "gemini-2.5-lite"
+  model: "gpt-5-nano"  # or "gemini-2.5-lite"
   api_key_env: "OPENAI_API_KEY"
   max_tokens: 500
   temperature: 0.1
   timeout_seconds: 30
 
 embedding:
-  model_name: "all-MiniLM-L6-v2"
-  dimension: 384
+    model_name: "text-embedding-3-small"
+    dimension: 1536
   batch_size: 32
   cache_ttl_hours: 24
 

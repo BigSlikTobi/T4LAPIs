@@ -65,8 +65,8 @@ class LLMConfig:
 class EmbeddingConfig:
     """Configuration for embedding generation."""
     
-    model_name: str = "all-MiniLM-L6-v2"
-    dimension: int = 384
+    model_name: str = "text-embedding-3-small"
+    dimension: int = 1536
     batch_size: int = 32
     cache_ttl_hours: int = 24
     normalize_vectors: bool = True
@@ -292,8 +292,8 @@ class StoryGroupingConfigManager:
     def _parse_embedding_config(self, data: Dict[str, Any]) -> EmbeddingConfig:
         """Parse embedding configuration section."""
         return EmbeddingConfig(
-            model_name=data.get("model_name", "all-MiniLM-L6-v2"),
-            dimension=int(data.get("dimension", 384)),
+            model_name=data.get("model_name", "text-embedding-3-small"),
+            dimension=int(data.get("dimension", 1536)),
             batch_size=int(data.get("batch_size", 32)),
             cache_ttl_hours=int(data.get("cache_ttl_hours", 24)),
             normalize_vectors=bool(data.get("normalize_vectors", True)),

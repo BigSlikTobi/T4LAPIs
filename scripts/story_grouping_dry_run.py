@@ -579,8 +579,13 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
                 args.provider = config.llm.provider
             if args.similarity_threshold == 0.8:  # default value
                 args.similarity_threshold = config.similarity.threshold
+            # If embedding model refers to an OpenAI embedding, route to openai_model,
+            # otherwise assume it's a sentence-transformers model name.
             if args.sentence_model == "all-MiniLM-L6-v2":  # default value
-                args.sentence_model = config.embedding.model_name
+                if str(config.embedding.model_name).startswith("text-embedding-"):
+                    args.openai_model = config.embedding.model_name
+                else:
+                    args.sentence_model = config.embedding.model_name
             if args.embedding_batch_size == 32:  # default value
                 args.embedding_batch_size = config.embedding.batch_size
             if args.max_parallelism == 4:  # default value
