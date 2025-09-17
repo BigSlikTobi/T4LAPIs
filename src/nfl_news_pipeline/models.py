@@ -140,6 +140,10 @@ class ContextSummary:
     summary_text: str
     llm_model: str
     confidence_score: float
+    # Optional token usage details for cost estimation (not persisted unless wired)
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    cached_input_tokens: Optional[int] = None
     entities: Optional[Dict[str, Any]] = None
     key_topics: List[str] = field(default_factory=list)
     fallback_used: bool = False

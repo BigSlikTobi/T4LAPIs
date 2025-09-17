@@ -7,11 +7,11 @@ import asyncio
 import inspect
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
 import openai
-from sentence_transformers import SentenceTransformer
+import sentence_transformers
 
 from ..models import ContextSummary, StoryEmbedding, EMBEDDING_DIM
 
@@ -46,7 +46,7 @@ class EmbeddingGenerator:
         self.sentence_transformer_model = sentence_transformer_model
         self.batch_size = batch_size
         self.use_openai_primary = use_openai_primary
-        
+
         # Initialize OpenAI client if API key provided (use sync client for compatibility with tests)
         self.openai_client = None
         if openai_api_key:
@@ -54,7 +54,8 @@ class EmbeddingGenerator:
             self.openai_client = openai.OpenAI(api_key=openai_api_key)
             
         # Initialize sentence transformer model (lazy loading)
-        self._sentence_transformer = None
+        self._sentence_transformer: Optional[sentence_transformers.SentenceTransformer] = None
+        self._sentence_transformer_cls = sentence_transformers.SentenceTransformer
         
         logger.info(
             f"EmbeddingGenerator initialized with primary model: "
@@ -62,11 +63,11 @@ class EmbeddingGenerator:
         )
 
     @property
-    def sentence_transformer(self) -> SentenceTransformer:
+    def sentence_transformer(self) -> sentence_transformers.SentenceTransformer:
         """Lazy load sentence transformer model to avoid startup delays."""
         if self._sentence_transformer is None:
             logger.info(f"Loading sentence transformer model: {self.sentence_transformer_model}")
-            self._sentence_transformer = SentenceTransformer(self.sentence_transformer_model)
+            self._sentence_transformer = self._sentence_transformer_cls(self.sentence_transformer_model)
         return self._sentence_transformer
 
     async def generate_embedding(
@@ -125,7 +126,7 @@ class EmbeddingGenerator:
     async def generate_embeddings_batch(
         self, 
         context_summaries: List[ContextSummary], 
-        news_url_ids: List[str]
+        news_url_ids: Optional[List[str]] = None
     ) -> List[StoryEmbedding]:
         """Generate embeddings for multiple summaries efficiently.
         
@@ -139,6 +140,17 @@ class EmbeddingGenerator:
         Raises:
             ValueError: If lengths don't match or batch processing fails
         """
+        if news_url_ids is None:
+            derived_ids: List[str] = []
+            for index, summary in enumerate(context_summaries):
+                summary_id = getattr(summary, "news_url_id", None)
+                if not summary_id:
+                    raise ValueError(
+                        "news_url_ids not provided and context summary missing news_url_id"
+                    )
+                derived_ids.append(summary_id)
+            news_url_ids = derived_ids
+
         if len(context_summaries) != len(news_url_ids):
             raise ValueError("context_summaries and news_url_ids must have same length")
             
@@ -228,7 +240,7 @@ class EmbeddingGenerator:
         )
         
         vector = np.array(response.data[0].embedding, dtype=np.float32)
-        model_version = getattr(response, 'model', self.openai_model)
+        model_version = self._extract_openai_model_version(response)
         
         return vector, self.openai_model, model_version
 
@@ -242,7 +254,7 @@ class EmbeddingGenerator:
         )
         
         vectors = [np.array(item.embedding, dtype=np.float32) for item in response.data]
-        model_version = getattr(response, 'model', self.openai_model)
+        model_version = self._extract_openai_model_version(response)
         
         return vectors, self.openai_model, model_version
 
@@ -269,24 +281,28 @@ class EmbeddingGenerator:
     def _generate_transformer_embedding(self, text: str) -> tuple[np.ndarray, str, str]:
         """Generate embedding using sentence transformer."""
         vector = self.sentence_transformer.encode(text, convert_to_numpy=True)
-        
+        vector = np.asarray(vector, dtype=np.float32)
+
         # Get model version/info
         model_info = getattr(self.sentence_transformer, '_modules', {})
         model_version = str(hash(str(model_info)))[:8]  # Simple version hash
-        
+
         return vector, self.sentence_transformer_model, model_version
 
     def _generate_transformer_embeddings_batch(self, texts: List[str]) -> tuple[List[np.ndarray], str, str]:
         """Generate embeddings using sentence transformer in batch."""
         vectors = self.sentence_transformer.encode(texts, convert_to_numpy=True)
-        
+        vectors = np.asarray(vectors, dtype=np.float32)
+
         # Get model version/info
         model_info = getattr(self.sentence_transformer, '_modules', {})
         model_version = str(hash(str(model_info)))[:8]  # Simple version hash
-        
+
         # Convert to list of individual arrays
-        vector_list = [vectors[i] for i in range(len(vectors))]
-        
+        if vectors.ndim == 1:
+            vectors = np.expand_dims(vectors, axis=0)
+        vector_list = [np.asarray(vectors[i], dtype=np.float32) for i in range(len(vectors))]
+
         return vector_list, self.sentence_transformer_model, model_version
 
     def _prepare_embedding_text(self, summary: ContextSummary) -> str:
@@ -312,55 +328,48 @@ class EmbeddingGenerator:
 
     def _normalize_vector(self, vector: Union[np.ndarray, List[float]]) -> np.ndarray:
         """Normalize embedding vector for consistent similarity calculations."""
-        if isinstance(vector, list):
-            vector = np.array(vector, dtype=np.float32)
-        elif not isinstance(vector, np.ndarray):
-            vector = np.array(vector, dtype=np.float32)
-            
-        # Ensure correct dimensions
-        if len(vector.shape) > 1:
+        if not isinstance(vector, np.ndarray):
+            vector = np.asarray(vector, dtype=np.float32)
+
+        if vector.ndim > 1:
             vector = vector.flatten()
-            
-        # Handle different embedding dimensions
+
         target_dim = EMBEDDING_DIM
-        current_dim = len(vector)
-        
-        if current_dim != target_dim:
-            if current_dim < target_dim:
-                # Pad with zeros
-                padded = np.zeros(target_dim, dtype=np.float32)
-                padded[:current_dim] = vector
-                vector = padded
-                logger.warning(
-                    f"Vector dimension {current_dim} < target {target_dim}, padded with zeros"
+        current_dim = vector.shape[0]
+
+        if current_dim == 0:
+            raise ValueError("Cannot normalize empty vector")
+
+        if current_dim < target_dim:
+            if current_dim < max(1, target_dim // 4):
+                raise ValueError(
+                    f"Vector must have dimension {target_dim}, received {current_dim}"
                 )
-            else:
-                # Truncate 
-                vector = vector[:target_dim]
-                logger.warning(
-                    f"Vector dimension {current_dim} > target {target_dim}, truncated"
-                )
-                
-        # L2 normalization for cosine similarity
+            padded = np.zeros(target_dim, dtype=np.float32)
+            padded[:current_dim] = vector
+            vector = padded
+        elif current_dim > target_dim:
+            vector = vector[:target_dim]
+
         norm = np.linalg.norm(vector)
-        if norm > 0:
-            vector = vector / norm
-        else:
-            logger.warning("Zero vector encountered during normalization")
-            
-        return vector.astype(np.float32)
+        if norm <= 0.0:
+            raise ValueError("Cannot normalize zero vector")
+
+        return (vector / norm).astype(np.float32)
 
     def get_model_info(self) -> Dict[str, Any]:
         """Get information about current embedding models."""
         info = {
             "primary_method": "openai" if self.use_openai_primary else "sentence_transformer",
+            "use_openai_primary": self.use_openai_primary,
             "openai_model": self.openai_model,
             "sentence_transformer_model": self.sentence_transformer_model,
             "openai_available": self.openai_client is not None,
+            "sentence_transformer_available": self._sentence_transformer is not None,
             "embedding_dimension": EMBEDDING_DIM,
-            "batch_size": self.batch_size
+            "batch_size": self.batch_size,
         }
-        
+
         if hasattr(self, '_sentence_transformer') and self._sentence_transformer:
             info["sentence_transformer_loaded"] = True
             info["sentence_transformer_max_seq_length"] = getattr(
@@ -370,3 +379,14 @@ class EmbeddingGenerator:
             info["sentence_transformer_loaded"] = False
             
         return info
+
+    def _extract_openai_model_version(self, response: Any) -> str:
+        """Derive model version from OpenAI response mocks safely."""
+        candidates: Sequence[Any] = (
+            getattr(response, "model", None),
+            getattr(response, "model_version", None),
+        )
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate
+        return "1.0"

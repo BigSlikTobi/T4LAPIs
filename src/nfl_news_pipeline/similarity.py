@@ -50,7 +50,8 @@ class SimilarityCalculator:
     def __init__(
         self,
         similarity_threshold: float = 0.8,
-        metric: SimilarityMetric = SimilarityMetric.COSINE
+        metric: SimilarityMetric = SimilarityMetric.COSINE,
+        cosine_scaling_gamma: float = 1.0,
     ):
         """
         Initialize similarity calculator.
@@ -62,8 +63,12 @@ class SimilarityCalculator:
         if not (0.0 <= similarity_threshold <= 1.0):
             raise ValueError("similarity_threshold must be in range [0.0, 1.0]")
         
+        if cosine_scaling_gamma <= 0:
+            raise ValueError("cosine_scaling_gamma must be positive")
+
         self.threshold = similarity_threshold
         self.metric = metric
+        self._cosine_gamma = float(cosine_scaling_gamma)
 
     def calculate_similarity(
         self,
@@ -193,10 +198,15 @@ class SimilarityCalculator:
         
         if norm1 == 0 or norm2 == 0:
             return 0.0
-        
+
         cosine_sim = np.dot(vec1, vec2) / (norm1 * norm2)
         # Ensure result is in [0, 1] range (cosine similarity can be [-1, 1])
-        return max(0.0, min(1.0, (cosine_sim + 1.0) / 2.0))
+        similarity = max(0.0, min(1.0, (cosine_sim + 1.0) / 2.0))
+        if self._cosine_gamma != 1.0:
+            # Optional scaling of cosine similarity in [0,1];
+            # By default gamma=1.0 (no scaling) to match tests' expectations.
+            similarity = similarity ** self._cosine_gamma
+        return similarity
 
     def _euclidean_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
         """Calculate euclidean distance-based similarity between two vectors."""

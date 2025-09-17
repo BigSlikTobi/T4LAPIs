@@ -6,6 +6,7 @@ Supports OpenAI GPT-5-nano and Google Gemini models with entity normalization.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -277,37 +278,145 @@ class URLContextExtractor:
             return None
         
         # No test-specific behavior here; rely on caller/tests to mock clients
-        
-        try:
-            prompt = self._create_llm_prompt(news_item)
-            
-            response = self.openai_client.chat.completions.create(
-                model="gpt-5-nano",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert NFL news analyst who creates complete, concluding, embedding-friendly summaries from news URLs. Always respond with valid JSON."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
 
-                timeout=30
-            )
-            
+        prompt = self._create_llm_prompt(news_item)
+        max_attempts = 3
+        base_delay = 0.5
+
+        for attempt in range(max_attempts):
+            try:
+                response = self.openai_client.chat.completions.create(
+                    model="gpt-5-nano",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are an expert NFL news analyst who creates complete, concluding, embedding-friendly summaries from news URLs. Always respond with valid JSON."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+
+                    temperature=0.1,
+                    max_tokens=500,
+                    timeout=30
+                )
+            except Exception as e:
+                if attempt == max_attempts - 1:
+                    logger.error(f"OpenAI extraction failed for {news_item.url}: {e}")
+                    break
+
+                backoff_seconds = base_delay * (2 ** attempt)
+                logger.warning(
+                    "OpenAI extraction attempt %d failed for %s: %s. Retrying in %.2fs",
+                    attempt + 1,
+                    news_item.url,
+                    e,
+                    backoff_seconds,
+                )
+                try:
+                    await asyncio.sleep(backoff_seconds)
+                except Exception:
+                    pass  # Sleep interruptions shouldn't break retry flow during tests
+                continue
+
             if not response.choices or not response.choices[0].message.content:
-                return None
-            
-            result = self._parse_llm_response(response.choices[0].message.content, "gpt-5-nano", news_item)
+                if attempt == max_attempts - 1:
+                    logger.warning(
+                        "OpenAI returned empty response on final attempt for %s",
+                        news_item.url,
+                    )
+                    break
+
+                backoff_seconds = base_delay * (2 ** attempt)
+                logger.warning(
+                    "OpenAI returned empty response on attempt %d for %s. Retrying in %.2fs",
+                    attempt + 1,
+                    news_item.url,
+                    backoff_seconds,
+                )
+                try:
+                    await asyncio.sleep(backoff_seconds)
+                except Exception:
+                    pass
+                continue
+
+            result = self._parse_llm_response(
+                response.choices[0].message.content,
+                "gpt-5-nano",
+                news_item,
+            )
             if result:
+                # Attach token usage to summary for accurate cost estimation later
+                # Be tolerant of mocks and non-numeric values
+                def _to_int_or_none(val):
+                    try:
+                        if val is None:
+                            return None
+                        # Accept ints/floats directly
+                        if isinstance(val, (int, float)):
+                            return int(val)
+                        # Accept numeric strings
+                        if isinstance(val, str):
+                            s = val.strip()
+                            if s == "":
+                                return None
+                            # Try int, then float
+                            try:
+                                return int(s)
+                            except Exception:
+                                return int(float(s))
+                        # For mocks or other types, skip
+                        return None
+                    except Exception:
+                        return None
+
+                # Safely extract token usage information from response if available
+                input_tokens = None
+                output_tokens = None
+                cached_input_tokens = None
+
+                try:
+                    usage = getattr(response, "usage", None)
+                    if usage is not None:
+                        # Handle both dict-like and attribute-like access
+                        def _get(u, key):
+                            try:
+                                if isinstance(u, dict):
+                                    return u.get(key)
+                                return getattr(u, key)
+                            except Exception:
+                                return None
+
+                        input_tokens = _get(usage, "prompt_tokens") or _get(usage, "input_tokens")
+                        output_tokens = _get(usage, "completion_tokens") or _get(usage, "output_tokens")
+                        cached_input_tokens = _get(usage, "cached_input_tokens")
+                except Exception:
+                    # If anything goes wrong, leave tokens as None
+                    input_tokens = output_tokens = cached_input_tokens = None
+
+                result.input_tokens = _to_int_or_none(input_tokens)
+                result.output_tokens = _to_int_or_none(output_tokens)
+                result.cached_input_tokens = _to_int_or_none(cached_input_tokens)
                 logger.debug(f"OpenAI extraction successful for: {news_item.url}")
                 return result
-                
-        except Exception as e:
-            logger.error(f"OpenAI extraction failed for {news_item.url}: {e}")
-        
+
+            if attempt == max_attempts - 1:
+                break
+
+            backoff_seconds = base_delay * (2 ** attempt)
+            logger.warning(
+                "OpenAI response parsing failed on attempt %d for %s. Retrying in %.2fs",
+                attempt + 1,
+                news_item.url,
+                backoff_seconds,
+            )
+            try:
+                await asyncio.sleep(backoff_seconds)
+            except Exception:
+                pass
+
         return None
     
     async def _extract_with_google(self, news_item: ProcessedNewsItem) -> Optional[ContextSummary]:
@@ -365,6 +474,10 @@ class URLContextExtractor:
         
         return None
     
+    def _create_extraction_prompt(self, news_item: ProcessedNewsItem) -> str:
+        """Public-facing helper for building extraction prompts."""
+        return self._create_llm_prompt(news_item)
+
     def _create_llm_prompt(self, news_item: ProcessedNewsItem) -> str:
         """Create prompt for LLM URL context analysis.
         
@@ -393,7 +506,7 @@ class URLContextExtractor:
         5. Extract key topics/themes for categorization
         6. Identify main entities (players, teams, coaches)
 
-        RESPONSE FORMAT (JSON only):
+        RESPONSE FORMAT (JSON format only):
         {{
             "summary": "Concise embedding-friendly summary",
             "entities": {{
@@ -508,9 +621,10 @@ class URLContextExtractor:
         
         summary_text = ". ".join(part.strip() for part in summary_parts if part.strip())
         
-        # Extract basic entities from text
+        # Extract basic entities from text and merge existing metadata entities
         entities = self._extract_entities_from_text(summary_text)
-        
+        entities = self._merge_entities_with_existing(entities, news_item.entities)
+
         # Generate basic topics from existing categories or title
         key_topics = []
         if news_item.categories:
@@ -524,7 +638,11 @@ class URLContextExtractor:
                 key_topics.append("trade")
             if any(word in title_lower for word in ["score", "touchdown", "win", "loss"]):
                 key_topics.append("performance")
-        
+
+        # Deduplicate topics while preserving order
+        seen_topics = set()
+        key_topics = [topic for topic in key_topics if not (topic in seen_topics or seen_topics.add(topic))]
+
         return ContextSummary(
             news_url_id=news_item.url,  # Will be set by caller
             summary_text=summary_text,
@@ -535,7 +653,81 @@ class URLContextExtractor:
             fallback_used=True,
             generated_at=datetime.now(timezone.utc)
         )
-    
+
+    def _merge_entities_with_existing(
+        self,
+        extracted_entities: Optional[Dict[str, List[str]]],
+        existing_entities: Optional[Any],
+    ) -> Dict[str, List[str]]:
+        """Merge extracted entities with entities supplied in metadata."""
+        merged = {
+            "players": list((extracted_entities or {}).get("players", [])),
+            "teams": list((extracted_entities or {}).get("teams", [])),
+            "coaches": list((extracted_entities or {}).get("coaches", [])),
+        }
+
+        if not existing_entities:
+            return {
+                "players": self._normalize_player_names(merged["players"]),
+                "teams": self._normalize_team_names(merged["teams"]),
+                "coaches": self._normalize_player_names(merged["coaches"]),
+            }
+
+        def _extend(category: str, values: Any) -> None:
+            if not values:
+                return
+            if isinstance(values, (list, tuple, set)):
+                for value in values:
+                    _extend(category, value)
+                return
+            if isinstance(values, dict):
+                for nested_val in values.values():
+                    _extend(category, nested_val)
+                return
+            value_str = str(values).strip()
+            if value_str:
+                merged[category].append(value_str)
+
+        def _classify_and_extend(value: Any) -> None:
+            if not value:
+                return
+            if isinstance(value, dict):
+                for key, val in value.items():
+                    if key in merged:
+                        _extend(key, val)
+                return
+            value_str = str(value).strip()
+            if not value_str:
+                return
+            value_lower = value_str.lower()
+            if (
+                value_lower in self.NFL_TEAM_MAPPINGS
+                or value_str in self.NFL_TEAM_MAPPINGS.values()
+            ):
+                _extend("teams", value_str)
+            elif "coach" in value_lower:
+                _extend("coaches", value_str)
+            else:
+                _extend("players", value_str)
+
+        if isinstance(existing_entities, dict):
+            for category, values in existing_entities.items():
+                if category in merged:
+                    _extend(category, values)
+                else:
+                    _classify_and_extend(values)
+        elif isinstance(existing_entities, (list, tuple, set)):
+            for item in existing_entities:
+                _classify_and_extend(item)
+        else:
+            _classify_and_extend(existing_entities)
+
+        return {
+            "players": self._normalize_player_names(merged["players"]),
+            "teams": self._normalize_team_names(merged["teams"]),
+            "coaches": self._normalize_player_names(merged["coaches"]),
+        }
+
     def _normalize_team_names(self, teams: List[str]) -> List[str]:
         """Normalize team names to full official names.
         
