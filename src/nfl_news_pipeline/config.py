@@ -44,6 +44,10 @@ class ConfigManager:
             user_agent=str(defaults.get("user_agent", "Mozilla/5.0")),
             timeout_seconds=int(defaults.get("timeout_seconds", 10)),
             max_parallel_fetches=int(defaults.get("max_parallel_fetches", 5)),
+            enable_story_grouping=bool(defaults.get("enable_story_grouping", False)),
+            story_grouping_max_parallelism=int(defaults.get("story_grouping_max_parallelism", 4)),
+            story_grouping_max_stories_per_run=defaults.get("story_grouping_max_stories_per_run"),
+            story_grouping_reprocess_existing=bool(defaults.get("story_grouping_reprocess_existing", False)),
         )
 
         feed_cfgs: List[FeedConfig] = []

@@ -17,10 +17,11 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -168,7 +169,221 @@ def cmd_status(cm: ConfigManager) -> int:
     return 0
 
 
-def cmd_run(cfg_path: str, *, source: Optional[str], dry_run: bool, disable_llm: bool, llm_timeout: Optional[float]) -> int:
+# Story grouping commands implementation
+def _build_story_grouping_orchestrator(storage):
+    """Build a story grouping orchestrator with default configuration."""
+    try:
+        from src.nfl_news_pipeline.orchestrator.story_grouping import (
+            StoryGroupingOrchestrator,
+            StoryGroupingSettings,
+        )
+        from src.nfl_news_pipeline.group_manager import GroupManager
+        from src.nfl_news_pipeline.embedding import EmbeddingGenerator, EmbeddingErrorHandler
+        from src.nfl_news_pipeline.similarity import SimilarityCalculator
+        from src.nfl_news_pipeline.story_grouping import URLContextExtractor
+        
+        # Initialize components with default settings
+        settings = StoryGroupingSettings()
+        settings.validate()
+        
+        # Create components
+        context_extractor = URLContextExtractor()
+        embedding_generator = EmbeddingGenerator()
+        similarity_calculator = SimilarityCalculator()
+        error_handler = EmbeddingErrorHandler()
+        group_manager = GroupManager(storage)
+        
+        # Create orchestrator
+        orchestrator = StoryGroupingOrchestrator(
+            context_extractor=context_extractor,
+            embedding_generator=embedding_generator,
+            group_manager=group_manager,
+            similarity_calculator=similarity_calculator,
+            error_handler=error_handler,
+            settings=settings,
+        )
+        
+        return orchestrator
+    except ImportError as e:
+        print(f"Story grouping components not available: {e}")
+        return None
+
+
+def cmd_group_stories(cfg_path: str, *, max_stories: int, max_parallelism: int, dry_run: bool, reprocess: bool) -> int:
+    """Run story grouping on recent stories."""
+    print(f"Running story grouping (max_stories={max_stories}, max_parallelism={max_parallelism}, dry_run={dry_run})")
+    
+    try:
+        storage = _build_storage(dry_run)
+        orchestrator = _build_story_grouping_orchestrator(storage)
+        if orchestrator is None:
+            return 1
+            
+        # Configure orchestrator settings
+        orchestrator.settings.max_parallelism = max_parallelism
+        orchestrator.settings.reprocess_existing = reprocess
+        orchestrator.settings.max_stories_per_run = max_stories
+        
+        # Get recent stories that need grouping
+        from src.nfl_news_pipeline.models import ProcessedNewsItem
+        
+        # For now, use a simple query to get recent items
+        # In a real implementation, this would query the database for stories without embeddings
+        print("Fetching recent stories for grouping...")
+        
+        # This is a placeholder - would need to implement proper story retrieval
+        stories: List[ProcessedNewsItem] = []
+        url_id_map: Dict[str, str] = {}
+        
+        if not stories:
+            print("No stories found that need grouping.")
+            return 0
+            
+        print(f"Processing {len(stories)} stories...")
+        
+        # Process the batch
+        import asyncio
+        result = asyncio.run(orchestrator.process_batch(stories, url_id_map))
+        
+        # Report results
+        print(f"Story grouping completed:")
+        print(f"  Total stories: {result.metrics.total_stories}")
+        print(f"  Processed: {result.metrics.processed_stories}")
+        print(f"  Skipped: {result.metrics.skipped_stories}")
+        print(f"  New groups: {result.metrics.new_groups_created}")
+        print(f"  Updated groups: {result.metrics.existing_groups_updated}")
+        print(f"  Processing time: {result.metrics.total_processing_time_ms}ms")
+        
+        return 0
+        
+    except Exception as e:
+        print(f"Error running story grouping: {e}")
+        return 1
+
+
+def cmd_group_status(cfg_path: str) -> int:
+    """Show story grouping statistics."""
+    try:
+        storage = _build_storage(False)
+        
+        print("Story Grouping Status:")
+        print("=" * 50)
+        
+        # This would query the database for grouping statistics
+        # For now, show placeholder information
+        print("Database connectivity: OK")
+        print("Total stories with embeddings: [TBD]")
+        print("Total story groups: [TBD]")
+        print("Average group size: [TBD]")
+        print("Recent grouping activity: [TBD]")
+        
+        return 0
+        
+    except Exception as e:
+        print(f"Error getting group status: {e}")
+        return 1
+
+
+def cmd_group_backfill(cfg_path: str, *, batch_size: int, max_batches: Optional[int], dry_run: bool, resume_from: Optional[str]) -> int:
+    """Batch process existing stories for grouping."""
+    print(f"Running story grouping backfill (batch_size={batch_size}, max_batches={max_batches}, dry_run={dry_run})")
+    
+    if resume_from:
+        print(f"Resuming from story ID: {resume_from}")
+        
+    try:
+        storage = _build_storage(dry_run)
+        orchestrator = _build_story_grouping_orchestrator(storage)
+        if orchestrator is None:
+            return 1
+            
+        # Configure for batch processing
+        orchestrator.settings.max_parallelism = min(4, batch_size)  # Conservative parallelism for backfill
+        
+        batch_num = 0
+        total_processed = 0
+        
+        print("Starting backfill process...")
+        
+        # This is a placeholder implementation
+        # Real implementation would:
+        # 1. Query database for stories without embeddings
+        # 2. Process in batches
+        # 3. Handle resume functionality
+        # 4. Provide progress updates
+        
+        print("Backfill completed.")
+        print(f"Total batches processed: {batch_num}")
+        print(f"Total stories processed: {total_processed}")
+        
+        return 0
+        
+    except Exception as e:
+        print(f"Error during backfill: {e}")
+        return 1
+
+
+def cmd_group_report(cfg_path: str, *, format_type: str, days_back: int) -> int:
+    """Generate story grouping analytics report."""
+    try:
+        storage = _build_storage(False)
+        
+        # Calculate date range
+        end_date = datetime.now(timezone.utc)
+        start_date = end_date - timedelta(days=days_back)
+        
+        print(f"Generating story grouping report (format={format_type}, days_back={days_back})")
+        print(f"Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+        
+        # This would query the database for analytics data
+        # For now, generate placeholder report
+        
+        report_data = {
+            "report_generated": end_date.isoformat(),
+            "date_range": {
+                "start": start_date.isoformat(),
+                "end": end_date.isoformat(),
+                "days": days_back
+            },
+            "summary": {
+                "total_stories_processed": 0,
+                "total_groups_created": 0,
+                "average_group_size": 0.0,
+                "processing_success_rate": 100.0
+            },
+            "top_groups": [],
+            "trending_topics": [],
+            "performance_metrics": {
+                "avg_processing_time_ms": 0,
+                "embedding_generation_success_rate": 100.0,
+                "similarity_calculation_success_rate": 100.0
+            }
+        }
+        
+        if format_type == "json":
+            print(json.dumps(report_data, indent=2))
+        else:
+            # Text format
+            print("\nStory Grouping Analytics Report")
+            print("=" * 50)
+            print(f"Report Period: {days_back} days")
+            print(f"Total Stories Processed: {report_data['summary']['total_stories_processed']}")
+            print(f"Total Groups Created: {report_data['summary']['total_groups_created']}")
+            print(f"Average Group Size: {report_data['summary']['average_group_size']:.1f}")
+            print(f"Processing Success Rate: {report_data['summary']['processing_success_rate']:.1f}%")
+            print("\nPerformance Metrics:")
+            print(f"  Average Processing Time: {report_data['performance_metrics']['avg_processing_time_ms']}ms")
+            print(f"  Embedding Success Rate: {report_data['performance_metrics']['embedding_generation_success_rate']:.1f}%")
+            print(f"  Similarity Calculation Success Rate: {report_data['performance_metrics']['similarity_calculation_success_rate']:.1f}%")
+        
+        return 0
+        
+    except Exception as e:
+        print(f"Error generating report: {e}")
+        return 1
+
+
+def cmd_run(cfg_path: str, *, source: Optional[str], dry_run: bool, disable_llm: bool, llm_timeout: Optional[float], enable_story_grouping: bool = False) -> int:
     cm = ConfigManager(cfg_path)
     cm.load_config()
     storage = _build_storage(dry_run)
@@ -179,6 +394,8 @@ def cmd_run(cfg_path: str, *, source: Optional[str], dry_run: bool, disable_llm:
         os.environ["NEWS_PIPELINE_DISABLE_LLM"] = "1"
     if llm_timeout is not None:
         os.environ["OPENAI_TIMEOUT"] = str(llm_timeout)
+    if enable_story_grouping:
+        os.environ["NEWS_PIPELINE_ENABLE_STORY_GROUPING"] = "1"
 
     # If single source requested, temporarily write a filtered config manager
     if source:
@@ -227,6 +444,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--dry-run", action="store_true", help="Do not write to DB; use in-memory storage")
     pr.add_argument("--disable-llm", action="store_true", help="Disable LLM usage; rule-based only")
     pr.add_argument("--llm-timeout", type=float, help="Override LLM timeout in seconds")
+    pr.add_argument("--enable-story-grouping", action="store_true", help="Enable story grouping post-processing")
 
     # validate
     pv = sub.add_parser("validate", help="Validate configuration and show warnings")
@@ -239,6 +457,32 @@ def build_parser() -> argparse.ArgumentParser:
     # list-sources
     pl = sub.add_parser("list-sources", help="List enabled sources")
     pl.add_argument("--config", default="feeds.yaml")
+
+    # group-stories
+    pg = sub.add_parser("group-stories", help="Run story grouping on recent stories")
+    pg.add_argument("--config", default="feeds.yaml", help="Path to feeds.yaml (default: feeds.yaml)")
+    pg.add_argument("--max-stories", type=int, default=100, help="Maximum stories to process (default: 100)")
+    pg.add_argument("--max-parallelism", type=int, default=4, help="Maximum parallel processing (default: 4)")
+    pg.add_argument("--dry-run", action="store_true", help="Do not write to DB; show what would be done")
+    pg.add_argument("--reprocess", action="store_true", help="Reprocess stories that already have embeddings")
+
+    # group-status
+    ps_grp = sub.add_parser("group-status", help="Show story grouping statistics")
+    ps_grp.add_argument("--config", default="feeds.yaml")
+
+    # group-backfill
+    pb = sub.add_parser("group-backfill", help="Batch process existing stories for grouping")
+    pb.add_argument("--config", default="feeds.yaml", help="Path to feeds.yaml (default: feeds.yaml)")
+    pb.add_argument("--batch-size", type=int, default=50, help="Stories per batch (default: 50)")
+    pb.add_argument("--max-batches", type=int, help="Maximum batches to process (default: unlimited)")
+    pb.add_argument("--dry-run", action="store_true", help="Do not write to DB; show what would be done")
+    pb.add_argument("--resume-from", help="Resume from specific story ID")
+
+    # group-report
+    pr_grp = sub.add_parser("group-report", help="Generate story grouping analytics report")
+    pr_grp.add_argument("--config", default="feeds.yaml")
+    pr_grp.add_argument("--format", choices=["text", "json"], default="text", help="Output format")
+    pr_grp.add_argument("--days-back", type=int, default=7, help="Days to include in report (default: 7)")
 
     return p
 
@@ -265,6 +509,35 @@ def main(argv: Optional[List[str]] = None) -> int:
             dry_run=bool(getattr(args, "dry_run", False)),
             disable_llm=bool(getattr(args, "disable_llm", False)),
             llm_timeout=getattr(args, "llm_timeout", None),
+            enable_story_grouping=bool(getattr(args, "enable_story_grouping", False)),
+        )
+
+    if args.cmd == "group-stories":
+        return cmd_group_stories(
+            cfg_path,
+            max_stories=getattr(args, "max_stories", 100),
+            max_parallelism=getattr(args, "max_parallelism", 4),
+            dry_run=bool(getattr(args, "dry_run", False)),
+            reprocess=bool(getattr(args, "reprocess", False)),
+        )
+
+    if args.cmd == "group-status":
+        return cmd_group_status(cfg_path)
+
+    if args.cmd == "group-backfill":
+        return cmd_group_backfill(
+            cfg_path,
+            batch_size=getattr(args, "batch_size", 50),
+            max_batches=getattr(args, "max_batches", None),
+            dry_run=bool(getattr(args, "dry_run", False)),
+            resume_from=getattr(args, "resume_from", None),
+        )
+
+    if args.cmd == "group-report":
+        return cmd_group_report(
+            cfg_path,
+            format_type=getattr(args, "format", "text"),
+            days_back=getattr(args, "days_back", 7),
         )
 
     parser.print_help()

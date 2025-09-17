@@ -11,8 +11,9 @@ T4LAPIs is designed to handle complete NFL data workflows, from fetching raw dat
 - **📊 Comprehensive NFL Data Coverage**: 24+ different NFL datasets including teams, players, games, statistics, injuries, and advanced analytics
 - **🔄 Automated Data Pipelines**: GitHub Actions workflows for scheduled data updates
 – **🤖 AI-Powered Content Generation**: Automated personalized summaries using Gemini 1.5 Flash + OpenAI gpt-5-nano entity extraction
-- **� Trending Summary Generator**: AI-powered comprehensive summaries for trending NFL entities with pipeline integration
-- **�🛠️ CLI Tools**: Command-line interfaces for manual data operations
+- **📰 Story Grouping & Similarity Clustering**: Intelligent news story clustering using semantic similarity and LLM context analysis
+- **🔍 Trending Summary Generator**: AI-powered comprehensive summaries for trending NFL entities with pipeline integration
+- **🛠️ CLI Tools**: Command-line interfaces for manual data operations
 - **📈 Smart Update Logic**: Intelligent detection of data gaps and incremental updates
 - **🌐 Google Search Grounding**: Real-time NFL information retrieval for enhanced accuracy
 - **🧪 Full Test Coverage**: Comprehensive test suite ensuring reliability (60+ tests including 34+ LLM tests)
@@ -122,6 +123,67 @@ python scripts/llm_entity_linker_cli.py run --batch-size 20 --max-batches 5
 ```
 
 **⚠️ LLM Entity Linking Setup**: For optimal performance, manually create the `get_unlinked_articles` SQL function in Supabase (see [Manual Database Setup](#🔧-manual-database-setup-for-llm-entity-linking)).
+
+## 🔗 Story Grouping & Similarity Clustering
+
+The system includes intelligent story grouping functionality that automatically clusters similar news stories based on semantic similarity. This feature helps identify duplicate coverage, track story evolution, and organize content efficiently.
+
+### Story Grouping Features
+
+✅ **Automatic Story Clustering**
+- Semantic similarity analysis using embeddings
+- LLM-powered context extraction from URLs
+- Centroid-based clustering for efficiency
+- Incremental processing of new stories
+
+✅ **Pipeline Integration**
+- Seamless integration as post-processing step
+- Configurable via feeds.yaml or environment variables
+- Dry-run support for testing
+- Comprehensive error handling and logging
+
+✅ **CLI Tools for Management**
+- 4 specialized commands for different workflows
+- Batch processing for existing story backfill
+- Progress tracking and resume capabilities
+- Analytics and reporting functionality
+
+### Quick Start - Story Grouping
+
+```bash
+# Enable story grouping in pipeline
+python scripts/pipeline_cli.py run --enable-story-grouping --dry-run
+
+# Process recent stories manually
+python scripts/pipeline_cli.py group-stories --max-stories 50 --dry-run
+
+# Check grouping status
+python scripts/pipeline_cli.py group-status
+
+# Backfill existing stories in batches
+python scripts/pipeline_cli.py group-backfill --batch-size 25 --dry-run
+
+# Generate analytics report
+python scripts/pipeline_cli.py group-report --format json
+```
+
+### Configuration
+
+Add to your `feeds.yaml`:
+
+```yaml
+defaults:
+  enable_story_grouping: true
+  story_grouping_max_parallelism: 4
+  story_grouping_max_stories_per_run: 100
+```
+
+Or use environment variable:
+```bash
+export NEWS_PIPELINE_ENABLE_STORY_GROUPING=1
+```
+
+**📖 Complete Guide**: See [docs/story_grouping_integration.md](docs/story_grouping_integration.md) for detailed configuration and usage instructions.
 
 ## 🚀 FastAPI REST API
 

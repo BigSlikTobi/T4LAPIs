@@ -1,0 +1,97 @@
+# Example feeds.yaml with story grouping enabled
+# This demonstrates how to configure the NFL news pipeline with story grouping
+
+version: 1
+
+defaults:
+  user_agent: T4LAPIs-NFLNewsPipeline/1.0
+  timeout_seconds: 30
+  max_parallel_fetches: 8
+  
+  # Story grouping configuration
+  enable_story_grouping: true
+  story_grouping_max_parallelism: 4
+  story_grouping_max_stories_per_run: 150
+  story_grouping_reprocess_existing: false
+
+sources:
+  # --- RSS Feeds ---
+  - name: ESPN - NFL News
+    type: rss
+    url: https://www.espn.com/espn/rss/nfl/news
+    publisher: ESPN
+    nfl_only: true
+    enabled: true
+
+  - name: CBS Sports - NFL Headlines
+    type: rss
+    url: https://www.cbssports.com/rss/headlines/nfl/
+    publisher: CBS Sports
+    nfl_only: true
+    enabled: true
+
+  - name: Yahoo Sports - NFL
+    type: rss
+    url: https://sports.yahoo.com/nfl/rss/
+    publisher: Yahoo Sports
+    nfl_only: true
+    enabled: true
+
+  - name: NFL.com News
+    type: rss
+    url: https://www.nfl.com/rss/news/
+    publisher: NFL.com
+    nfl_only: true
+    enabled: true
+
+  # --- Sitemap Sources ---
+  - name: NFL.com Sitemap
+    type: sitemap
+    url_template: https://www.nfl.com/sitemap/news/{year}/{month:02d}/
+    publisher: NFL.com
+    nfl_only: true
+    enabled: true
+    max_articles: 50
+    days_back: 7
+
+  - name: Pro Football Talk
+    type: rss
+    url: https://profootballtalk.nbcsports.com/feed/
+    publisher: NBC Sports
+    nfl_only: false
+    enabled: true
+
+  # Example of a disabled source
+  - name: The Athletic - NFL
+    type: rss
+    url: https://theathletic.com/rss/news/nfl/
+    publisher: The Athletic
+    nfl_only: false
+    enabled: false
+    
+# Story Grouping Configuration Notes:
+#
+# enable_story_grouping (boolean):
+#   - Set to true to enable automatic story grouping after news ingestion
+#   - Can be overridden with NEWS_PIPELINE_ENABLE_STORY_GROUPING environment variable
+#
+# story_grouping_max_parallelism (integer):
+#   - Controls how many stories are processed simultaneously for grouping
+#   - Higher values = faster processing but more resource usage
+#   - Recommended: 2-6 depending on system resources
+#
+# story_grouping_max_stories_per_run (integer or null):
+#   - Limits the number of stories processed for grouping in each pipeline run
+#   - Set to null for unlimited processing
+#   - Useful for controlling processing time and resource usage
+#
+# story_grouping_reprocess_existing (boolean):
+#   - When true, reprocesses stories that already have embeddings
+#   - Useful when similarity thresholds or algorithms are updated
+#   - Normally should be false for efficiency
+#
+# Environment Variable Overrides:
+#   NEWS_PIPELINE_ENABLE_STORY_GROUPING=1    # Enable story grouping
+#   NEWS_PIPELINE_DEBUG=1                    # Enable debug output
+#   NEWS_PIPELINE_DISABLE_LLM=1              # Disable LLM usage
+#   OPENAI_TIMEOUT=30                        # LLM timeout in seconds
