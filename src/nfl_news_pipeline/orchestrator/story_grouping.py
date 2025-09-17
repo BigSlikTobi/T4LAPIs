@@ -7,19 +7,21 @@ embedding generation, candidate similarity search, and group assignment.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
-
+from urllib.parse import urlparse
 import numpy as np
 
-from ..embedding import EmbeddingErrorHandler, EmbeddingGenerator
-from ..group_manager import GroupManager
-from ..models import ContextSummary, GroupCentroid, ProcessedNewsItem, StoryEmbedding
-from ..similarity import SimilarityCalculator
-from ..story_grouping import URLContextExtractor
+from ..embedding import EmbeddingErrorHandler, EmbeddingGenerator, EmbeddingErrorHandler
+from ..group_manager import GroupManager, GroupAssignmentResult
+from ..models import ContextSummary, GroupCentroid, ProcessedNewsItem, StoryEmbedding, EMBEDDING_DIM,
+from ..similarity import SimilarityCalculator, SimilarityMetric
+from ..story_grouping import URLContextExtractor, generate_metadata_hash
 from ..monitoring import GroupingMetricsCollector, GroupingAlertsManager, GroupingAnalytics
 from ..logging.audit import AuditLogger
 
@@ -38,6 +40,7 @@ class StoryGroupingSettings:
     prioritize_recent: bool = True
     prioritize_high_relevance: bool = True
     reprocess_existing: bool = False
+    minimum_cosine_match: float = 0.2
 
     def validate(self) -> None:
         if self.max_parallelism < 1:
@@ -50,6 +53,8 @@ class StoryGroupingSettings:
             raise ValueError("max_total_processing_time must be positive")
         if self.max_stories_per_run is not None and self.max_stories_per_run <= 0:
             raise ValueError("max_stories_per_run must be positive")
+        if not (0.0 <= self.minimum_cosine_match <= 1.0):
+            raise ValueError("minimum_cosine_match must be in [0.0, 1.0]")
 
 
 @dataclass
@@ -136,6 +141,9 @@ class StoryGroupingOrchestrator:
         settings: Optional[StoryGroupingSettings] = None,
         audit_logger: Optional[AuditLogger] = None,
         enable_monitoring: bool = True,
+        embedding_storage: Optional[EmbeddingStorageManager] = None,
+        max_concurrent_stories: Optional[int] = None,
+        enable_fallbacks: bool = False,
     ) -> None:
         self.group_manager = group_manager
         self.context_extractor = context_extractor
@@ -143,6 +151,14 @@ class StoryGroupingOrchestrator:
         self.error_handler = error_handler or EmbeddingErrorHandler()
         self.settings = settings or StoryGroupingSettings()
         self.settings.validate()
+
+        if max_concurrent_stories is not None:
+            self.settings.max_parallelism = max(1, int(max_concurrent_stories))
+
+        self.embedding_storage = embedding_storage
+        self.enable_fallbacks = enable_fallbacks
+        self._url_id_cache: Dict[str, str] = {}
+        self._last_outcome: Optional[StoryProcessingOutcome] = None
 
         # Reuse the similarity calculator from the group manager so thresholds stay aligned
         self.similarity_calc: SimilarityCalculator = group_manager.similarity_calc
@@ -164,7 +180,7 @@ class StoryGroupingOrchestrator:
     async def process_batch(
         self,
         stories: Sequence[ProcessedNewsItem],
-        url_id_map: Dict[str, str],
+        url_id_map: Optional[Dict[str, str]] = None,
     ) -> StoryGroupingBatchResult:
         """Process a batch of stories and assign them to groups."""
         started_at = datetime.now(timezone.utc)
@@ -172,6 +188,8 @@ class StoryGroupingOrchestrator:
         outcomes: List[StoryProcessingOutcome] = []
         metrics = StoryGroupingMetrics(total_stories=len(stories))
         throttled = False
+
+        url_id_map = self._ensure_url_id_map(stories, url_id_map)
 
         prioritized = self._prioritize_items(stories, url_id_map)
         missing_id_outcomes = [
@@ -276,6 +294,157 @@ class StoryGroupingOrchestrator:
 
         return StoryGroupingBatchResult(outcomes=outcomes, metrics=metrics, started_at=started_at, finished_at=finished_at)
 
+    async def process_story(
+        self,
+        news_item: ProcessedNewsItem,
+        *,
+        news_url_id: Optional[str] = None,
+    ) -> Optional[GroupAssignmentResult]:
+        """Process a single story end-to-end and return assignment details."""
+        url_map = {news_item.url: news_url_id} if news_url_id else None
+        resolved_map = self._ensure_url_id_map([news_item], url_map)
+        resolved_id = resolved_map[news_item.url]
+
+        outcome = await self._process_story(news_item, resolved_id)
+        self._last_outcome = outcome
+        if outcome and outcome.status == "skipped":
+            try:
+                memberships = await self.group_manager.storage.get_memberships_by_story(resolved_id)
+            except Exception:
+                memberships = []
+            if memberships:
+                member = memberships[0]
+                return GroupAssignmentResult(
+                    news_url_id=resolved_id,
+                    group_id=member.group_id,
+                    similarity_score=getattr(member, "similarity_score", 1.0) or 1.0,
+                    is_new_group=False,
+                    assignment_successful=True,
+                )
+        return self._outcome_to_assignment_result(outcome)
+
+    async def process_stories_batch(
+        self,
+        stories: Sequence[ProcessedNewsItem],
+        url_id_map: Optional[Dict[str, str]] = None,
+    ) -> List[Optional[GroupAssignmentResult]]:
+        """Process multiple stories sequentially, preserving input order."""
+        results: List[Optional[GroupAssignmentResult]] = []
+        mapping = self._ensure_url_id_map(stories, url_id_map)
+
+        for story in stories:
+            outcome = await self._process_story(story, mapping[story.url])
+            results.append(self._outcome_to_assignment_result(outcome))
+
+        return results
+
+    def _ensure_url_id_map(
+        self,
+        stories: Sequence[ProcessedNewsItem],
+        existing_map: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, str]:
+        """Ensure every story has a stable news_url_id mapping."""
+        mapping: Dict[str, str] = dict(existing_map or {})
+        for story in stories:
+            if not mapping.get(story.url):
+                mapping[story.url] = self._derive_news_url_id(story)
+            self._url_id_cache[story.url] = mapping[story.url]
+        return mapping
+
+    def _derive_news_url_id(self, news_item: ProcessedNewsItem) -> str:
+        cached = self._url_id_cache.get(news_item.url)
+        if cached:
+            return cached
+
+        parsed = urlparse(news_item.url)
+        path = (parsed.path or "").rstrip("/")
+        candidate = path.split("/")[-1] if path else ""
+        if not candidate:
+            candidate = parsed.netloc or (news_item.title or "")
+
+        candidate = candidate.split("?")[0].split("#")[0]
+        slug_source = candidate or news_item.url
+        slug = re.sub(r"[^a-z0-9]+", "-", slug_source.lower()).strip("-")
+
+        if not slug:
+            slug = hashlib.md5(news_item.url.encode("utf-8")).hexdigest()[:12]
+
+        self._url_id_cache[news_item.url] = slug
+        return slug
+
+    def _build_metadata_summary(
+        self,
+        news_item: ProcessedNewsItem,
+        news_url_id: str,
+    ) -> ContextSummary:
+        """Build a lightweight summary from available metadata."""
+        summary_text = news_item.description or news_item.title or news_item.url
+
+        entities: Dict[str, List[str]] = {}
+        if getattr(news_item, "entities", None):
+            entities["entities"] = list(news_item.entities)
+
+        key_topics = list(getattr(news_item, "categories", []) or [])
+
+        summary = ContextSummary(
+            news_url_id=news_url_id,
+            summary_text=str(summary_text),
+            llm_model="metadata-fallback",
+            confidence_score=0.5,
+            entities=entities or None,
+            key_topics=key_topics,
+            fallback_used=True,
+            generated_at=datetime.now(timezone.utc),
+        )
+        return summary
+
+    def _generate_fallback_embedding(
+        self,
+        summary: ContextSummary,
+        news_url_id: str,
+    ) -> StoryEmbedding:
+        """Generate a deterministic embedding when primary methods fail."""
+        seed_text = f"{news_url_id}:{summary.summary_text}"
+        seed_bytes = hashlib.sha256(seed_text.encode("utf-8")).digest()
+        seed_int = int.from_bytes(seed_bytes[:8], "little")
+
+        rng = np.random.default_rng(seed_int)
+        vector = rng.standard_normal(EMBEDDING_DIM).astype(np.float32)
+        norm = float(np.linalg.norm(vector))
+        if not np.isfinite(norm) or norm == 0.0:
+            vector = np.zeros(EMBEDDING_DIM, dtype=np.float32)
+            vector[0] = 1.0
+        else:
+            vector = vector / norm
+
+        return StoryEmbedding(
+            news_url_id=news_url_id,
+            embedding_vector=vector.tolist(),
+            model_name="fallback-metadata-embedding",
+            model_version="1.0",
+            summary_text=summary.summary_text,
+            confidence_score=summary.confidence_score,
+            generated_at=datetime.now(timezone.utc),
+        )
+
+    def _outcome_to_assignment_result(
+        self,
+        outcome: Optional[StoryProcessingOutcome],
+    ) -> Optional[GroupAssignmentResult]:
+        """Convert an internal outcome to a public assignment result."""
+        if outcome is None:
+            return None
+
+        success = outcome.status in {"assigned", "created"}
+        return GroupAssignmentResult(
+            news_url_id=outcome.news_url_id,
+            group_id=outcome.group_id or "",
+            similarity_score=outcome.similarity_score or 0.0,
+            is_new_group=outcome.created_new_group,
+            assignment_successful=success,
+            error_message=None if success else outcome.reason,
+        )
+
     def _prioritize_items(
         self,
         stories: Sequence[ProcessedNewsItem],
@@ -307,6 +476,33 @@ class StoryGroupingOrchestrator:
         if not self.settings.reprocess_existing:
             existing_embedding = await self.group_manager.storage.get_embedding_by_url_id(news_url_id)
             if existing_embedding:
+                cached_summary = None
+                if getattr(self.context_extractor, "cache", None) and getattr(self.context_extractor, "enable_caching", False):
+                    try:
+                        metadata_hash = generate_metadata_hash(news_item.title or "", news_item.description or "")
+                    except Exception:
+                        metadata_hash = None
+                    cached_summary = self.context_extractor.cache.get_cached_summary(news_item.url, metadata_hash)
+
+                memberships = await self.group_manager.storage.get_memberships_by_story(news_url_id)
+                if memberships:
+                    primary = memberships[0]
+                    return StoryProcessingOutcome(
+                        news_url_id=news_url_id,
+                        url=news_item.url,
+                        status="assigned",
+                        group_id=primary.group_id,
+                        similarity_score=getattr(primary, "similarity_score", 1.0) or 1.0,
+                        created_new_group=False,
+                        candidate_groups=[primary.group_id],
+                        summary_confidence=getattr(cached_summary, "confidence_score", None),
+                        embedding_generated=False,
+                        processing_time_ms=0,
+                        context_time_ms=0,
+                        embedding_time_ms=0,
+                        similarity_time_ms=0,
+                    )
+
                 return StoryProcessingOutcome(
                     news_url_id=news_url_id,
                     url=news_item.url,
@@ -317,8 +513,25 @@ class StoryGroupingOrchestrator:
         try:
             # Extract context summary
             t0 = time.perf_counter()
-            summary = await self.context_extractor.extract_context(news_item)
+            try:
+                summary = await self.context_extractor.extract_context(news_item)
+            except Exception as context_error:
+                if not self.enable_fallbacks:
+                    raise
+                logger.warning(
+                    "Context extraction failed for %s, using fallback: %s",
+                    news_item.url,
+                    context_error,
+                )
+                summary = self._build_metadata_summary(news_item, news_url_id)
             context_time = time.perf_counter() - t0
+
+            if summary is None:
+                if self.enable_fallbacks:
+                    summary = self._build_metadata_summary(news_item, news_url_id)
+                else:
+                    raise RuntimeError(f"No context summary produced for {news_item.url}")
+
             summary.news_url_id = news_url_id
             stored = await self.group_manager.storage.upsert_context_summary(summary)
             if not stored:
@@ -326,16 +539,16 @@ class StoryGroupingOrchestrator:
 
             # Generate embedding with retry support
             t0 = time.perf_counter()
-            try:
-                embedding = await self.embedding_generator.generate_embedding(summary, news_url_id)
-            except Exception as gen_error:  # pragma: no cover - error path exercised in tests via handler
-                embedding = await self.error_handler.handle_embedding_error(
-                    gen_error,
-                    summary,
-                    news_url_id,
-                    self.embedding_generator,
-                    attempt=0,
-                )
+            embedding = await self.error_handler.handle_embedding_error(
+                self.embedding_generator.generate_embedding,
+                summary,
+                news_url_id,
+            )
+
+            if embedding is None and self.enable_fallbacks:
+                logger.warning("Embedding generation failed for %s, using fallback vector", news_url_id)
+                embedding = self._generate_fallback_embedding(summary, news_url_id)
+
             embedding_time = time.perf_counter() - t0
 
             if embedding is None:
@@ -348,6 +561,7 @@ class StoryGroupingOrchestrator:
                     processing_time_ms=int((time.perf_counter() - story_start) * 1000),
                     context_time_ms=int(context_time * 1000),
                     embedding_time_ms=int(embedding_time * 1000),
+                    embedding_generated=False,
                 )
 
             # Persist embedding early so downstream operations have access
@@ -367,11 +581,36 @@ class StoryGroupingOrchestrator:
             candidate_groups = [centroid.group_id for centroid, _ in candidate_pairs]
 
             # Perform detailed similarity on candidate groups
-            best_group_id, best_similarity = await self._evaluate_candidates(embedding, candidate_pairs)
+            best_group_id, best_similarity, best_raw_similarity = await self._evaluate_candidates(embedding, candidate_pairs)
             similarity_time = time.perf_counter() - t0
 
             # Assign to existing group if similarity passes threshold
-            if best_group_id and best_similarity is not None and self.similarity_calc.is_similar(best_similarity):
+            meets_min_cosine = True
+            if best_group_id and best_similarity is not None and self.similarity_calc.metric == SimilarityMetric.COSINE:
+                meets_min_cosine = (
+                    best_raw_similarity is None
+                    or best_raw_similarity >= self.settings.minimum_cosine_match
+                )
+
+            meets_topic_overlap = True
+            if best_group_id and summary and summary.key_topics:
+                try:
+                    group_record = await self.group_manager.storage.get_group_by_id(best_group_id)
+                except Exception:
+                    group_record = None
+                if group_record and group_record.tags:
+                    group_tags = {tag.lower().strip() for tag in group_record.tags if isinstance(tag, str)}
+                    summary_topics = {topic.lower().strip() for topic in summary.key_topics if isinstance(topic, str)}
+                    if summary_topics and group_tags:
+                        meets_topic_overlap = bool(group_tags.intersection(summary_topics))
+
+            if (
+                best_group_id
+                and best_similarity is not None
+                and self.similarity_calc.is_similar(best_similarity)
+                and meets_min_cosine
+                and meets_topic_overlap
+            ):
                 assigned = await self.group_manager.add_story_to_group(best_group_id, embedding, best_similarity)
                 status = "assigned" if assigned else "error"
                 result = StoryProcessingOutcome(
@@ -399,7 +638,12 @@ class StoryGroupingOrchestrator:
             # Otherwise create a new group
             group_id = await self.group_manager.create_new_group(embedding)
             if group_id:
-                result = StoryProcessingOutcome(
+                if summary and summary.key_topics:
+                    try:
+                        await self.group_manager.add_group_tags(group_id, summary.key_topics)
+                    except Exception as tag_error:
+                        logger.debug("Failed to add tags to group %s: %s", group_id, tag_error)
+                return StoryProcessingOutcome(
                     news_url_id=news_url_id,
                     url=news_item.url,
                     status="created",
@@ -474,11 +718,24 @@ class StoryGroupingOrchestrator:
             return []
 
         embedding_vector = np.array(embedding.embedding_vector, dtype=np.float32)
-        similarities = self.similarity_calc.batch_calculate_similarities(embedding_vector, list(centroid_vectors))
+        centroid_arrays = [np.array(vec, dtype=np.float32) for vec in centroid_vectors]
+        similarities = self.similarity_calc.batch_calculate_similarities(embedding_vector, centroid_arrays)
 
         candidates: List[Tuple[GroupCentroid, float]] = []
-        for centroid, score in zip(centroids, similarities):
+        for centroid, score, centroid_array in zip(centroids, similarities, centroid_arrays):
+            raw_cosine = None
+            if self.similarity_calc.metric == SimilarityMetric.COSINE:
+                try:
+                    raw_cosine = float(
+                        np.dot(embedding_vector, centroid_array)
+                        / (np.linalg.norm(embedding_vector) * np.linalg.norm(centroid_array))
+                    )
+                except Exception:
+                    raw_cosine = None
+
             if score >= self.settings.candidate_similarity_floor:
+                if raw_cosine is not None and raw_cosine < self.settings.minimum_cosine_match:
+                    continue
                 candidates.append((centroid, score))
 
         candidates.sort(key=lambda item: item[1], reverse=True)
@@ -490,41 +747,70 @@ class StoryGroupingOrchestrator:
         self,
         embedding: StoryEmbedding,
         candidate_pairs: Sequence[Tuple[GroupCentroid, float]],
-    ) -> Tuple[Optional[str], Optional[float]]:
+    ) -> Tuple[Optional[str], Optional[float], Optional[float]]:
         if not candidate_pairs:
-            return None, None
+            return None, None, None
 
         embedding_vector = np.array(embedding.embedding_vector, dtype=np.float32)
 
-        async def compute_similarity(centroid: GroupCentroid, centroid_score: float) -> Tuple[str, float]:
+        async def compute_similarity(centroid: GroupCentroid, centroid_score: float) -> Tuple[str, float, Optional[float]]:
             try:
                 group_embeddings = await self.group_manager.storage.get_group_embeddings(centroid.group_id)
                 if not group_embeddings:
-                    return centroid.group_id, centroid_score
+                    centroid_vector = np.array(centroid.centroid_vector, dtype=np.float32)
+                    raw_centroid = float(
+                        np.dot(embedding_vector, centroid_vector)
+                        / (np.linalg.norm(embedding_vector) * np.linalg.norm(centroid_vector))
+                    )
+                    return centroid.group_id, centroid_score, raw_centroid
 
                 best = 0.0
+                best_raw = -1.0
                 for member in group_embeddings:
                     member_vector = np.array(member.embedding_vector, dtype=np.float32)
                     score = self.similarity_calc.calculate_similarity(embedding_vector, member_vector)
                     if score > best:
                         best = score
-                return centroid.group_id, max(best, centroid_score)
+                        try:
+                            best_raw = float(
+                                np.dot(embedding_vector, member_vector)
+                                / (np.linalg.norm(embedding_vector) * np.linalg.norm(member_vector))
+                            )
+                        except Exception:
+                            best_raw = best_raw
+
+                centroid_vector = np.array(centroid.centroid_vector, dtype=np.float32)
+                try:
+                    centroid_raw = float(
+                        np.dot(embedding_vector, centroid_vector)
+                        / (np.linalg.norm(embedding_vector) * np.linalg.norm(centroid_vector))
+                    )
+                except Exception:
+                    centroid_raw = best_raw
+
+                if best >= centroid_score:
+                    raw_value = best_raw if best_raw >= 0.0 else centroid_raw
+                    return centroid.group_id, best, raw_value
+
+                return centroid.group_id, centroid_score, centroid_raw
             except Exception as exc:  # pragma: no cover - defensive path
                 logger.error("Failed evaluating candidate group %s: %s", centroid.group_id, exc)
-                return centroid.group_id, centroid_score
+                return centroid.group_id, centroid_score, None
 
         tasks = [compute_similarity(centroid, score) for centroid, score in candidate_pairs]
         results = await asyncio.gather(*tasks)
 
         best_group_id: Optional[str] = None
         best_score: float = 0.0
-        for group_id, score in results:
+        best_raw: Optional[float] = None
+        for group_id, score, raw in results:
             if score > best_score:
                 best_group_id = group_id
                 best_score = score
+                best_raw = raw
         if best_group_id:
-            return best_group_id, best_score
-        return None, None
+            return best_group_id, best_score, best_raw
+        return None, None, None
 
     def _aggregate_metrics(self, metrics: StoryGroupingMetrics, outcomes: Iterable[StoryProcessingOutcome]) -> None:
         processed = [o for o in outcomes if o.status in {"assigned", "created"}]
