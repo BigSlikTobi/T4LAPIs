@@ -24,6 +24,37 @@ try:
 except Exception:  # pragma: no cover
     build_entity_dictionary = None  # type: ignore[assignment]
 
+# Story grouping-related components are imported at module scope so tests can patch them
+try:
+    from ..orchestrator.story_grouping import (
+        StoryGroupingOrchestrator,
+        StoryGroupingSettings,
+    )  # type: ignore
+except Exception:  # pragma: no cover - allow environments without these deps
+    StoryGroupingOrchestrator = None  # type: ignore
+    StoryGroupingSettings = None  # type: ignore
+
+try:
+    from ..group_manager import GroupManager  # type: ignore
+except Exception:  # pragma: no cover
+    GroupManager = None  # type: ignore
+
+try:
+    from ..embedding import EmbeddingGenerator, EmbeddingErrorHandler  # type: ignore
+except Exception:  # pragma: no cover
+    EmbeddingGenerator = None  # type: ignore
+    EmbeddingErrorHandler = None  # type: ignore
+
+try:
+    from ..similarity import SimilarityCalculator  # type: ignore
+except Exception:  # pragma: no cover
+    SimilarityCalculator = None  # type: ignore
+
+try:
+    from ..story_grouping import URLContextExtractor  # type: ignore
+except Exception:  # pragma: no cover
+    URLContextExtractor = None  # type: ignore
+
 
 @dataclass
 class PipelineSummary:
@@ -378,6 +409,9 @@ class NFLNewsPipeline:
         """Check if story grouping should be enabled for this run."""
         if self._story_grouping_enabled is None:
             try:
+                # Ensure config manager exists so tests that patch ConfigManager can influence behavior
+                if self.cm is None:
+                    self.cm = ConfigManager(self.config_path)
                 # Check configuration
                 defaults = self.cm.get_defaults() if self.cm else None
                 if defaults and defaults.enable_story_grouping:
@@ -395,14 +429,19 @@ class NFLNewsPipeline:
         """Get or create the story grouping orchestrator."""
         if self._story_grouping_orchestrator is None:
             try:
-                from ..orchestrator.story_grouping import (
-                    StoryGroupingOrchestrator,
-                    StoryGroupingSettings,
-                )
-                from ..group_manager import GroupManager
-                from ..embedding import EmbeddingGenerator, EmbeddingErrorHandler
-                from ..similarity import SimilarityCalculator
-                from ..story_grouping import URLContextExtractor
+                # Validate dependencies are available
+                if not all(
+                    [
+                        StoryGroupingOrchestrator,
+                        StoryGroupingSettings,
+                        GroupManager,
+                        EmbeddingGenerator,
+                        EmbeddingErrorHandler,
+                        SimilarityCalculator,
+                        URLContextExtractor,
+                    ]
+                ):
+                    raise ImportError("Story grouping dependencies are not available")
                 
                 # Get configuration
                 defaults = self.cm.get_defaults() if self.cm else None
