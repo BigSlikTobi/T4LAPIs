@@ -17,9 +17,9 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 import numpy as np
 
-from ..embedding import EmbeddingErrorHandler, EmbeddingGenerator, EmbeddingErrorHandler
+from ..embedding import EmbeddingGenerator, EmbeddingStorageManager, EmbeddingErrorHandler
 from ..group_manager import GroupManager, GroupAssignmentResult
-from ..models import ContextSummary, GroupCentroid, ProcessedNewsItem, StoryEmbedding, EMBEDDING_DIM,
+from ..models import ContextSummary, GroupCentroid, ProcessedNewsItem, StoryEmbedding, EMBEDDING_DIM
 from ..similarity import SimilarityCalculator, SimilarityMetric
 from ..story_grouping import URLContextExtractor, generate_metadata_hash
 from ..monitoring import GroupingMetricsCollector, GroupingAlertsManager, GroupingAnalytics
@@ -643,7 +643,8 @@ class StoryGroupingOrchestrator:
                         await self.group_manager.add_group_tags(group_id, summary.key_topics)
                     except Exception as tag_error:
                         logger.debug("Failed to add tags to group %s: %s", group_id, tag_error)
-                return StoryProcessingOutcome(
+
+                result = StoryProcessingOutcome(
                     news_url_id=news_url_id,
                     url=news_item.url,
                     status="created",
@@ -658,7 +659,7 @@ class StoryGroupingOrchestrator:
                     embedding_time_ms=int(embedding_time * 1000),
                     similarity_time_ms=int(similarity_time * 1000),
                 )
-                
+
                 # Record monitoring data
                 self._record_decision_metrics(result, summary)
                 return result

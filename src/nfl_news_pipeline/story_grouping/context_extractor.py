@@ -372,6 +372,30 @@ class URLContextExtractor:
                     except Exception:
                         return None
 
+                # Safely extract token usage information from response if available
+                input_tokens = None
+                output_tokens = None
+                cached_input_tokens = None
+
+                try:
+                    usage = getattr(response, "usage", None)
+                    if usage is not None:
+                        # Handle both dict-like and attribute-like access
+                        def _get(u, key):
+                            try:
+                                if isinstance(u, dict):
+                                    return u.get(key)
+                                return getattr(u, key)
+                            except Exception:
+                                return None
+
+                        input_tokens = _get(usage, "prompt_tokens") or _get(usage, "input_tokens")
+                        output_tokens = _get(usage, "completion_tokens") or _get(usage, "output_tokens")
+                        cached_input_tokens = _get(usage, "cached_input_tokens")
+                except Exception:
+                    # If anything goes wrong, leave tokens as None
+                    input_tokens = output_tokens = cached_input_tokens = None
+
                 result.input_tokens = _to_int_or_none(input_tokens)
                 result.output_tokens = _to_int_or_none(output_tokens)
                 result.cached_input_tokens = _to_int_or_none(cached_input_tokens)
