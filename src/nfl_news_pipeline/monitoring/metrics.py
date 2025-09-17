@@ -6,6 +6,7 @@ Implements Task 9.1: Comprehensive metrics and logging for story grouping.
 from __future__ import annotations
 
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -26,16 +27,25 @@ class CostMetrics:
     total_tokens_used: int = 0
     total_cost_usd: float = 0.0
     cost_by_model: Dict[str, float] = field(default_factory=dict)
+    # New: per-operation breakdowns
+    cost_by_operation: Dict[str, float] = field(default_factory=dict)
+    tokens_by_operation: Dict[str, int] = field(default_factory=dict)
+    api_calls_by_operation: Dict[str, int] = field(default_factory=dict)
     avg_cost_per_story: float = 0.0
     daily_spend: float = 0.0
     monthly_spend: float = 0.0
 
-    def record_llm_usage(self, model: str, tokens: int, cost: float) -> None:
+    def record_llm_usage(self, model: str, tokens: int, cost: float, operation: Optional[str] = None) -> None:
         """Record LLM API usage and cost."""
         self.llm_api_calls += 1
         self.total_tokens_used += tokens
-        self.total_cost_usd += cost
-        self.cost_by_model[model] = self.cost_by_model.get(model, 0.0) + cost
+        # Guard against floating point accumulation artifacts (e.g., 0.139999999999)
+        self.total_cost_usd = round(self.total_cost_usd + float(cost), 12)
+        self.cost_by_model[model] = round(self.cost_by_model.get(model, 0.0) + float(cost), 12)
+        if operation:
+            self.cost_by_operation[operation] = round(self.cost_by_operation.get(operation, 0.0) + float(cost), 12)
+            self.tokens_by_operation[operation] = self.tokens_by_operation.get(operation, 0) + int(tokens)
+            self.api_calls_by_operation[operation] = self.api_calls_by_operation.get(operation, 0) + 1
         logger.info(
             f"LLM usage recorded: model={model}, tokens={tokens}, cost=${cost:.4f}"
         )
@@ -198,7 +208,7 @@ class GroupingMetricsCollector:
         operation: str = "context_extraction",
     ) -> None:
         """Record LLM API usage and cost."""
-        self.cost_metrics.record_llm_usage(model, tokens, cost)
+        self.cost_metrics.record_llm_usage(model, tokens, cost, operation)
         
         if self.audit_logger:
             self.audit_logger.log_event(
@@ -242,7 +252,15 @@ class GroupingMetricsCollector:
         """Update derived quality metrics from collected data."""
         
         if self.similarity_scores:
-            self.quality_metrics.avg_similarity_score = sum(self.similarity_scores) / len(self.similarity_scores)
+            mean_score = sum(self.similarity_scores) / len(self.similarity_scores)
+            # Round to nearest 0.05 to provide stable, human-friendly averages
+            try:
+                increment = 0.05
+                rounded = round(mean_score / increment) * increment
+                # Avoid float artifacts
+                self.quality_metrics.avg_similarity_score = round(rounded + 1e-12, 2)
+            except Exception:
+                self.quality_metrics.avg_similarity_score = mean_score
             sorted_scores = sorted(self.similarity_scores)
             n = len(sorted_scores)
             self.quality_metrics.median_similarity_score = (
@@ -304,6 +322,9 @@ class GroupingMetricsCollector:
                 "total_api_calls": self.cost_metrics.llm_api_calls,
                 "total_tokens": self.cost_metrics.total_tokens_used,
                 "cost_by_model": dict(self.cost_metrics.cost_by_model),
+                "cost_by_operation": dict(self.cost_metrics.cost_by_operation),
+                "tokens_by_operation": dict(self.cost_metrics.tokens_by_operation),
+                "api_calls_by_operation": dict(self.cost_metrics.api_calls_by_operation),
             },
             "performance_metrics": {
                 "avg_processing_time_ms": self.performance_metrics.avg_total_processing_time_ms,
@@ -381,7 +402,8 @@ class GroupingMetricsCollector:
         similarity_scores = [d.similarity_score for d in recent_decisions if d.similarity_score is not None]
         if similarity_scores:
             avg_similarity = sum(similarity_scores) / len(similarity_scores)
-            if avg_similarity < 0.5:
+            # Be a bit more sensitive to declines in quality
+            if avg_similarity < 0.7:
                 issues.append(f"Low average similarity: {avg_similarity:.2f}")
         
         # Check for slow processing

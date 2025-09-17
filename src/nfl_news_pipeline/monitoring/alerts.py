@@ -320,9 +320,9 @@ class GroupingAlertsManager:
         """Detect statistical anomalies in recent grouping patterns."""
         anomalies = []
         
-        if len(self.metrics_collector._recent_decisions) < window_size:
+        # Use up to the last window_size decisions; if fewer exist, analyze what's available
+        if not self.metrics_collector._recent_decisions:
             return anomalies
-        
         recent_decisions = self.metrics_collector._recent_decisions[-window_size:]
         
         # Analyze similarity score anomalies

@@ -300,8 +300,50 @@ class URLContextExtractor:
             if not response.choices or not response.choices[0].message.content:
                 return None
             
+            # Extract usage if provided by SDK
+            usage = getattr(response, "usage", None)
+            input_tokens = getattr(usage, "prompt_tokens", None) if usage else None
+            output_tokens = getattr(usage, "completion_tokens", None) if usage else None
+            cached_input_tokens = None
+            # Some SDKs expose cached tokens via nested fields; try safe access
+            try:
+                cached_input_tokens = (
+                    getattr(usage, "cached_prompt_tokens", None)
+                    if usage and hasattr(usage, "cached_prompt_tokens")
+                    else None
+                )
+            except Exception:
+                cached_input_tokens = None
+
             result = self._parse_llm_response(response.choices[0].message.content, "gpt-5-nano", news_item)
             if result:
+                # Attach token usage to summary for accurate cost estimation later
+                # Be tolerant of mocks and non-numeric values
+                def _to_int_or_none(val):
+                    try:
+                        if val is None:
+                            return None
+                        # Accept ints/floats directly
+                        if isinstance(val, (int, float)):
+                            return int(val)
+                        # Accept numeric strings
+                        if isinstance(val, str):
+                            s = val.strip()
+                            if s == "":
+                                return None
+                            # Try int, then float
+                            try:
+                                return int(s)
+                            except Exception:
+                                return int(float(s))
+                        # For mocks or other types, skip
+                        return None
+                    except Exception:
+                        return None
+
+                result.input_tokens = _to_int_or_none(input_tokens)
+                result.output_tokens = _to_int_or_none(output_tokens)
+                result.cached_input_tokens = _to_int_or_none(cached_input_tokens)
                 logger.debug(f"OpenAI extraction successful for: {news_item.url}")
                 return result
                 

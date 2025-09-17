@@ -71,7 +71,7 @@ analytics_report = orchestrator.generate_analytics_report(time_window_hours=24)
 ```python
 # Record LLM API costs
 collector.record_llm_cost(
-    model="gpt-4o-mini",
+    model="gpt-5-nano",
     tokens=1000,
     cost=0.15,
     operation="context_extraction"

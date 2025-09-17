@@ -11,7 +11,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -579,28 +579,75 @@ class StoryGroupingOrchestrator:
         )
         
         # Record LLM costs if available from summary
-        if summary and hasattr(summary, 'llm_model') and hasattr(summary, 'tokens_used'):
-            # Estimate cost based on model (would be more accurate with actual API response)
-            estimated_cost = self._estimate_llm_cost(summary.llm_model, getattr(summary, 'tokens_used', 0))
-            if estimated_cost > 0:
-                self.metrics_collector.record_llm_cost(
-                    model=summary.llm_model,
-                    tokens=getattr(summary, 'tokens_used', 0),
-                    cost=estimated_cost,
-                    operation="context_extraction",
-                )
+        if summary and hasattr(summary, 'llm_model'):
+            # Prefer detailed token usage when available
+            input_tokens = int(getattr(summary, 'input_tokens', 0) or 0)
+            output_tokens = int(getattr(summary, 'output_tokens', 0) or 0)
+            cached_input_tokens = int(getattr(summary, 'cached_input_tokens', 0) or 0)
 
-    def _estimate_llm_cost(self, model: str, tokens: int) -> float:
-        """Estimate LLM API cost based on model and token count."""
-        # Rough cost estimates per 1K tokens (would be configured externally in practice)
+            total_tokens = input_tokens + output_tokens + cached_input_tokens
+
+            if total_tokens > 0:
+                estimated_cost = self._estimate_llm_cost(
+                    summary.llm_model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cached_input_tokens=cached_input_tokens,
+                )
+                if estimated_cost > 0:
+                    self.metrics_collector.record_llm_cost(
+                        model=summary.llm_model,
+                        tokens=total_tokens,
+                        cost=estimated_cost,
+                        operation="context_extraction",
+                    )
+            # Backward compatibility: if older field exists, use it
+            elif hasattr(summary, 'tokens_used'):
+                tokens_used = int(getattr(summary, 'tokens_used', 0) or 0)
+                if tokens_used > 0:
+                    estimated_cost = self._estimate_llm_cost(summary.llm_model, input_tokens=tokens_used)
+                    if estimated_cost > 0:
+                        self.metrics_collector.record_llm_cost(
+                            model=summary.llm_model,
+                            tokens=tokens_used,
+                            cost=estimated_cost,
+                            operation="context_extraction",
+                        )
+
+    def _estimate_llm_cost(
+        self,
+        model: str,
+        *,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cached_input_tokens: int = 0,
+    ) -> float:
+        """Estimate LLM API cost.
+
+        For gpt-5-nano, use tiered pricing:
+          - input: $0.00005 / 1K tokens
+          - cached input: $0.000005 / 1K tokens
+          - output: $0.0004 / 1K tokens
+        For other models, fall back to a flat per-1K token rate using total tokens.
+        """
+        model = (model or "").strip().lower()
+
+        if model == "gpt-5-nano":
+            return (
+                (input_tokens / 1000.0) * 0.00005
+                + (cached_input_tokens / 1000.0) * 0.000005
+                + (output_tokens / 1000.0) * 0.0004
+            )
+
+        # Fallback rates per 1K tokens (simple, single-rate)
         cost_per_1k_tokens = {
             "gpt-4o-mini": 0.00015,
             "gpt-3.5-turbo": 0.0005,
             "gemini-2.5-lite": 0.0001,
         }
-        
-        rate = cost_per_1k_tokens.get(model, 0.0001)  # Default fallback
-        return (tokens / 1000) * rate
+        rate = cost_per_1k_tokens.get(model, 0.0001)
+        total_tokens = input_tokens + output_tokens + cached_input_tokens
+        return (total_tokens / 1000.0) * rate
 
     def _handle_alert(self, alert) -> None:
         """Handle monitoring alerts."""

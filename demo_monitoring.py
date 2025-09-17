@@ -22,16 +22,23 @@ class CostMetrics:
     total_tokens_used: int = 0
     total_cost_usd: float = 0.0
     cost_by_model: Dict[str, float] = field(default_factory=dict)
+    cost_by_operation: Dict[str, float] = field(default_factory=dict)
+    tokens_by_operation: Dict[str, int] = field(default_factory=dict)
+    api_calls_by_operation: Dict[str, int] = field(default_factory=dict)
     avg_cost_per_story: float = 0.0
     daily_spend: float = 0.0
     monthly_spend: float = 0.0
 
-    def record_llm_usage(self, model: str, tokens: int, cost: float) -> None:
+    def record_llm_usage(self, model: str, tokens: int, cost: float, operation: Optional[str] = None) -> None:
         """Record LLM API usage and cost."""
         self.llm_api_calls += 1
         self.total_tokens_used += tokens
-        self.total_cost_usd += cost
-        self.cost_by_model[model] = self.cost_by_model.get(model, 0.0) + cost
+        self.total_cost_usd = round(self.total_cost_usd + float(cost), 12)
+        self.cost_by_model[model] = round(self.cost_by_model.get(model, 0.0) + float(cost), 12)
+        if operation:
+            self.cost_by_operation[operation] = round(self.cost_by_operation.get(operation, 0.0) + float(cost), 12)
+            self.tokens_by_operation[operation] = self.tokens_by_operation.get(operation, 0) + int(tokens)
+            self.api_calls_by_operation[operation] = self.api_calls_by_operation.get(operation, 0) + 1
         logger.info(f"LLM usage recorded: model={model}, tokens={tokens}, cost=${cost:.4f}")
 
 
@@ -189,6 +196,9 @@ class GroupingMetricsCollector:
                 "total_api_calls": self.cost_metrics.llm_api_calls,
                 "total_tokens": self.cost_metrics.total_tokens_used,
                 "cost_by_model": dict(self.cost_metrics.cost_by_model),
+                "cost_by_operation": dict(self.cost_metrics.cost_by_operation),
+                "tokens_by_operation": dict(self.cost_metrics.tokens_by_operation),
+                "api_calls_by_operation": dict(self.cost_metrics.api_calls_by_operation),
             },
             "performance_metrics": {
                 "stories_per_minute": self.performance_metrics.stories_per_minute,
@@ -240,11 +250,29 @@ def demonstrate_monitoring():
         collector.record_grouping_decision(*story_data)
         time.sleep(0.01)  # Small delay to show processing time
     
-    # Simulate LLM costs
-    print("\n💰 Recording LLM API costs...")
-    collector.record_llm_cost("gpt-4o-mini", 800, 0.12)
-    collector.record_llm_cost("gpt-4o-mini", 650, 0.098)
-    collector.record_llm_cost("gemini-2.5-lite", 400, 0.04)
+    # Simulate LLM costs (token-based) for gpt-5-nano
+    print("\n💰 Recording LLM API costs (token-based)...")
+    def estimate_gpt5_nano_cost(input_tokens: int, output_tokens: int, cached_input_tokens: int = 0) -> float:
+        return (
+            (input_tokens / 1000.0) * 0.00005
+            + (cached_input_tokens / 1000.0) * 0.000005
+            + (output_tokens / 1000.0) * 0.0004
+        )
+
+    # context_extraction call 1
+    in1, out1, cached1 = 600, 200, 0
+    cost1 = estimate_gpt5_nano_cost(in1, out1, cached1)
+    collector.cost_metrics.record_llm_usage("gpt-5-nano", in1 + out1 + cached1, cost1, operation="context_extraction")
+
+    # context_extraction call 2 (cache hit on most of the prompt)
+    in2, out2, cached2 = 100, 150, 400
+    cost2 = estimate_gpt5_nano_cost(in2, out2, cached2)
+    collector.cost_metrics.record_llm_usage("gpt-5-nano", in2 + out2 + cached2, cost2, operation="context_extraction")
+
+    # embedding/reasoning or another operation example
+    in3, out3, cached3 = 300, 100, 0
+    cost3 = estimate_gpt5_nano_cost(in3, out3, cached3)
+    collector.cost_metrics.record_llm_usage("gpt-5-nano", in3 + out3 + cached3, cost3, operation="similarity_assist")
     
     # Generate comprehensive report
     print("\n📈 Generating analytics report...")
@@ -261,6 +289,8 @@ def demonstrate_monitoring():
     print(f"   Average cost per story: ${report['cost_metrics']['avg_cost_per_story']:.4f}")
     print(f"   Total API calls: {report['cost_metrics']['total_api_calls']}")
     print(f"   Total tokens: {report['cost_metrics']['total_tokens']}")
+    print(f"   Cost by operation: {report['cost_metrics'].get('cost_by_operation', {})}")
+    print(f"   Tokens by operation: {report['cost_metrics'].get('tokens_by_operation', {})}")
     
     print(f"\n⚡ Performance Metrics:")
     print(f"   Stories per minute: {report['performance_metrics']['stories_per_minute']:.1f}")
