@@ -37,6 +37,7 @@ class ContextCache:
         ttl_hours: int = 24,
         enable_memory_cache: bool = True,
         enable_disk_cache: bool = True,
+        verbose: bool = False,
     ):
         """Initialize context cache.
         
@@ -49,6 +50,7 @@ class ContextCache:
         self.storage_manager = storage_manager
         self.ttl_hours = max(1, ttl_hours)
         self.ttl_seconds = self.ttl_hours * 3600
+        self.verbose = verbose
         
         # Initialize cache layers
         self.memory_cache: Optional[LLMResponseCache] = None
@@ -68,7 +70,13 @@ class ContextCache:
         self.cache_hits = 0
         self.cache_misses = 0
         
-        logger.info(f"ContextCache initialized with TTL={ttl_hours}h, memory={enable_memory_cache}, disk={enable_disk_cache}")
+        log_fn = logger.info if self.verbose else logger.debug
+        log_fn(
+            "ContextCache initialized with TTL=%sh, memory=%s, disk=%s",
+            ttl_hours,
+            enable_memory_cache,
+            enable_disk_cache,
+        )
     
     def get_cached_summary(self, url: str, metadata_hash: Optional[str] = None) -> Optional[ContextSummary]:
         """Retrieve cached context summary for a URL.
@@ -87,13 +95,12 @@ class ContextCache:
             if self.memory_cache:
                 cached_data = self.memory_cache.get(cache_key)
                 if cached_data:
-                    summary = ContextSummary.from_db(cached_data)
-                    if self._is_valid_cache_entry(summary):
+                    summary = self._deserialize_cached_summary(url, cached_data)
+                    if summary and self._is_valid_cache_entry(summary):
                         self.cache_hits += 1
                         logger.debug(f"Cache hit for URL: {url}")
                         return summary
-                    else:
-                        # Expired, remove from cache
+                    elif summary:
                         logger.debug(f"Cache entry expired for URL: {url}")
             
             # Check database cache if storage manager is available
@@ -206,6 +213,68 @@ class ContextCache:
             "ttl_hours": self.ttl_hours,
         }
     
+    def _deserialize_cached_summary(
+        self,
+        url: str,
+        cached_data: Any,
+    ) -> Optional[ContextSummary]:
+        """Safely recreate ContextSummary objects from cache payloads."""
+        if isinstance(cached_data, ContextSummary):
+            return cached_data
+
+        if isinstance(cached_data, dict):
+            summary_text = cached_data.get("summary_text")
+            if not summary_text:
+                return None
+
+            news_url_id = cached_data.get("news_url_id") or url
+            llm_model = cached_data.get("llm_model") or "cache_restore"
+
+            confidence_raw = (
+                cached_data.get("confidence_score")
+                if cached_data.get("confidence_score") is not None
+                else cached_data.get("confidence")
+            )
+            try:
+                confidence = float(confidence_raw) if confidence_raw is not None else 0.6
+            except (TypeError, ValueError):
+                confidence = 0.6
+
+            entities = cached_data.get("entities") or {}
+            key_topics = cached_data.get("key_topics") or []
+            fallback_used = bool(cached_data.get("fallback_used", False))
+
+            generated_at = cached_data.get("generated_at")
+            if isinstance(generated_at, str):
+                try:
+                    generated_at = datetime.fromisoformat(generated_at)
+                except ValueError:
+                    generated_at = None
+            if not isinstance(generated_at, datetime):
+                generated_at = datetime.now(timezone.utc)
+
+            try:
+                return ContextSummary(
+                    news_url_id=news_url_id,
+                    summary_text=str(summary_text),
+                    llm_model=str(llm_model),
+                    confidence_score=confidence,
+                    entities=entities,
+                    key_topics=list(key_topics) if isinstance(key_topics, (list, tuple)) else [key_topics],
+                    fallback_used=fallback_used,
+                    generated_at=generated_at,
+                )
+            except Exception as exc:  # pragma: no cover - defensive path
+                logger.debug("Failed to deserialize cached summary for %s: %s", url, exc)
+                return None
+
+        logger.debug(
+            "Unrecognized cache payload type for %s: %s",
+            url,
+            type(cached_data).__name__,
+        )
+        return None
+
     def _generate_cache_key(self, url_or_id: str, metadata_hash: Optional[str] = None) -> str:
         """Generate cache key from URL/ID and optional metadata hash.
         

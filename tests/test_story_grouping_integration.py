@@ -275,7 +275,7 @@ class TestStoryGroupingPipelineIntegration:
             # Setup responses for both stories
             mock_responses = [
                 Mock(choices=[Mock(message=Mock(content=json.dumps(mock_llm_responses["chiefs-mahomes-4-touchdowns"])))]),
-                Mock(choices=[Mock(message=Mock(content=json.dumps(mock_llm_responses["chiefs-victory-mahomes-stellar"]))])
+                Mock(choices=[Mock(message=Mock(content=json.dumps(mock_llm_responses["chiefs-victory-mahomes-stellar"])))]),
             ]
             mock_client.chat.completions.create.side_effect = mock_responses
             

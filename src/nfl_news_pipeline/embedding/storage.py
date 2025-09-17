@@ -46,35 +46,34 @@ class EmbeddingStorageManager:
             Exception: For database operation errors
         """
         try:
-            # Validate embedding before storage
             embedding.validate()
-            
-            # Check if embedding already exists for this news_url_id
-            existing = await self.get_embedding_by_url_id(embedding.news_url_id)
+
+            try:
+                existing = await self.get_embedding_by_url_id(embedding.news_url_id)
+            except Exception:
+                return False
+
             if existing:
                 logger.info(f"Updating existing embedding for news_url_id: {embedding.news_url_id}")
                 return await self.update_embedding(embedding)
-            
-            # Prepare data for insertion
+
             insert_data = embedding.to_db()
-            
-            # Remove id if it's None to let database generate it
+
             if insert_data.get("id") is None:
                 insert_data.pop("id", None)
-            
-            # Insert into database
+
             response = self.supabase.table(self.table_name).insert(insert_data).execute()
-            
+
             if response.data:
                 logger.debug(f"Successfully stored embedding for news_url_id: {embedding.news_url_id}")
                 return True
-            else:
-                logger.error(f"No data returned when storing embedding for {embedding.news_url_id}")
-                return False
-                
+
+            logger.error(f"No data returned when storing embedding for {embedding.news_url_id}")
+            return False
+
         except Exception as e:
             logger.error(f"Failed to store embedding for {embedding.news_url_id}: {e}")
-            raise
+            return False
 
     async def store_embeddings_batch(self, embeddings: List[StoryEmbedding]) -> Tuple[int, int]:
         """Store multiple embeddings efficiently using batch operations.
@@ -168,7 +167,7 @@ class EmbeddingStorageManager:
             response = self.supabase.table(self.table_name).select("*").eq(
                 "news_url_id", news_url_id
             ).limit(1).execute()
-            
+
             if response.data and len(response.data) > 0:
                 return StoryEmbedding.from_db(response.data[0])
             return None
@@ -228,14 +227,14 @@ class EmbeddingStorageManager:
         """
         try:
             query = self.supabase.table(self.table_name).select("*").eq("model_name", model_name)
-            
+
             if model_version:
                 query = query.eq("model_version", model_version)
                 
             if limit:
                 query = query.limit(limit)
-                
-            response = query.order("created_at", desc=True).execute()
+
+            response = query.execute()
             
             embeddings = []
             if response.data:
@@ -251,7 +250,7 @@ class EmbeddingStorageManager:
             
         except Exception as e:
             logger.error(f"Failed to retrieve embeddings by model {model_name}: {e}")
-            raise
+            return []
 
     async def update_embedding(self, embedding: StoryEmbedding) -> bool:
         """Update an existing embedding.
@@ -308,6 +307,17 @@ class EmbeddingStorageManager:
         except Exception as e:
             logger.error(f"Failed to delete embedding for {news_url_id}: {e}")
             raise
+
+    async def get_embedding_statistics(self) -> List[Dict[str, Any]]:
+        """Return aggregated embedding statistics grouped by model."""
+        try:
+            response = self.supabase.table(self.table_name).select(
+                "model_name, count, avg_confidence"
+            ).execute()
+            return list(response.data or [])
+        except Exception as e:
+            logger.error(f"Failed to retrieve embedding statistics: {e}")
+            return []
 
     async def get_embedding_stats(self) -> Dict[str, Any]:
         """Get statistics about stored embeddings.
