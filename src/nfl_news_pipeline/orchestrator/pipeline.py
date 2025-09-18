@@ -248,9 +248,18 @@ class NFLNewsPipeline:
         if items:
             # 1) Rule-based pass for all items
             rule = RuleBasedFilter()
-            # If LLM is disabled via env, slightly lower the threshold to avoid over-filtering
+            # If LLM is disabled (or budget is zero), slightly lower the threshold to avoid over-filtering
             llm_disabled = os.environ.get("NEWS_PIPELINE_DISABLE_LLM", "").lower() in {"1", "true", "yes"}
-            rb_threshold = 0.3 if llm_disabled else 0.4
+            # Interpret LLM budget from env early to decide viability; use OPENAI_TIMEOUT as fallback
+            try:
+                _budget_s_env = float(os.environ.get("NEWS_PIPELINE_LLM_BUDGET_SECONDS", os.environ.get("OPENAI_TIMEOUT", "10")))
+            except Exception:
+                _budget_s_env = 10.0
+            llm_budget_zero = _budget_s_env <= 0.0
+            # Effective LLM allowance
+            llm_allowed = (not llm_disabled) and (not llm_budget_zero)
+            # Lower threshold when LLM is not viable so keyword-only items like "NFL ..." can pass
+            rb_threshold = 0.3 if not llm_allowed else 0.4
             rb_results = [rule.filter(it, threshold=rb_threshold) for it in items]
             if os.environ.get("NEWS_PIPELINE_DEBUG", "").lower() in {"1", "true", "yes"}:
                 pos = sum(1 for r in rb_results if r.is_relevant)
@@ -264,14 +273,15 @@ class NFLNewsPipeline:
 
             llm_results: Dict[int, Any] = {}
             # Allow disabling LLM validation via environment (for tests/CLI --disable-llm)
-            if to_validate_idx and not llm_disabled:
+            if to_validate_idx and llm_allowed:
                 # Limits: maximum items and time budget per source
                 try:
                     max_items = int(os.environ.get("NEWS_PIPELINE_LLM_MAX_ITEMS", "24"))
                 except Exception:
                     max_items = 24
                 try:
-                    budget_s = float(os.environ.get("NEWS_PIPELINE_LLM_BUDGET_SECONDS", os.environ.get("OPENAI_TIMEOUT", "10")))
+                    # Use the previously parsed env budget for consistency
+                    budget_s = _budget_s_env
                 except Exception:
                     budget_s = 10.0
                 try:
