@@ -883,7 +883,7 @@ class RosterDataTransformer(BaseDataTransformer):
                 "pfr_id": str(row.get('pfr_id', '')) if pd.notna(row.get('pfr_id')) else None,
                 "fantasy_data_id": str(row.get('fantasy_data_id', '')) if pd.notna(row.get('fantasy_data_id')) else None,
                 "sleeper_id": str(row.get('sleeper_id', '')) if pd.notna(row.get('sleeper_id')) else None,
-                "years_exp": int(row['years_exp']) if pd.notna(row['years_exp']) else None,
+                "years_exp": int(row['years_exp']) if pd.notna(row.get('years_exp')) else None,
                 "headshot_url": str(row.get('headshot_url', '')) if pd.notna(row.get('headshot_url')) else None,
                 "ngs_position": str(row.get('ngs_position', '')) if pd.notna(row.get('ngs_position')) else None,
                 "week": int(row.get('week', 1)) if pd.notna(row.get('week')) else 1,
@@ -893,11 +893,11 @@ class RosterDataTransformer(BaseDataTransformer):
                 "esb_id": str(row.get('esb_id', '')) if pd.notna(row.get('esb_id')) else None,
                 "gsis_it_id": str(row.get('gsis_it_id', '')) if pd.notna(row.get('gsis_it_id')) else None,
                 "smart_id": str(row.get('smart_id', '')) if pd.notna(row.get('smart_id')) else None,
-                "entry_year": int(row['entry_year']) if pd.notna(row['entry_year']) else None,
-                "rookie_year": int(row['rookie_year']) if pd.notna(row['rookie_year']) else None,
+                "entry_year": int(row['entry_year']) if pd.notna(row.get('entry_year')) else None,
+                "rookie_year": int(row['rookie_year']) if pd.notna(row.get('rookie_year')) else None,
                 "draft_club": str(row.get('draft_club', '')) if pd.notna(row.get('draft_club')) else None,
-                "draft_number": int(row['draft_number']) if pd.notna(row['draft_number']) else None,
-                "age": int(row['age']) if pd.notna(row['age']) else None
+                "draft_number": int(row['draft_number']) if pd.notna(row.get('draft_number')) else None,
+                "age": int(row['age']) if pd.notna(row.get('age')) else None
             }
             
             # Skip if critical data is missing

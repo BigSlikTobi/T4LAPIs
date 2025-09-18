@@ -6,14 +6,14 @@ Replaces the standalone roster_updates/main.py script.
 
 import sys
 import os
-from pathlib import Path
 
-# Add src to path so we can import core modules
-ROOT_DIR = Path(__file__).parent.parent
-sys.path.insert(0, str(ROOT_DIR / "src"))
+# Add project root to path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
-from core.data.loaders import RostersDataLoader
-from core.utils.cli import setup_cli_parser, handle_cli_errors, setup_cli_logging, print_results
+from src.core.data.loaders.rosters import RostersDataLoader
+from src.core.utils.cli import setup_cli_parser, handle_cli_errors, setup_cli_logging, print_results
 
 
 @handle_cli_errors
