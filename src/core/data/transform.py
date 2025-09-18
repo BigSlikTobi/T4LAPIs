@@ -259,7 +259,7 @@ class PlayerDataTransformer(BaseDataTransformer):
                     sleeper_id = str(int(sleeper_value)) if float(sleeper_value).is_integer() else str(sleeper_value)
                 else:
                     sleeper_id = str(sleeper_value).strip()
-            except Exception:
+            except (ValueError, TypeError):
                 sleeper_id = str(sleeper_value)
 
         # Handle draft information
