@@ -1,5 +1,10 @@
 # Design Document: Story Similarity Grouping Feature
+Deprecated: This document has moved.
 
+Please see the canonical version here:
+- docs/specs/story-similarity-grouping/design.md
+
+Rationale: All specs were consolidated under docs/specs/ to avoid duplication.
 ## Overview
 
 The Story Similarity Grouping feature extends the existing NFL News Processing Pipeline by implementing intelligent story clustering based on semantic similarity. The system analyzes news stories using embeddings generated from LLM-created contextual summaries, groups similar stories together using centroid-based clustering, and maintains these groupings dynamically as new stories are ingested.

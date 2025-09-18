@@ -278,7 +278,7 @@ print(f"Cost this batch: ${analytics_report['performance_insights']['cost_effici
 Run the included demonstration:
 
 ```bash
-python demo_monitoring.py
+python examples/demo_monitoring.py
 ```
 
 This shows a complete workflow with simulated story processing, cost tracking, quality metrics, and alert detection.

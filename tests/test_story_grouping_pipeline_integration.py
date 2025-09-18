@@ -25,6 +25,7 @@ class MockStorageManager:
         self.stored_items = []
         self.watermarks = {}
         self.ids_by_url = {}
+        self.client = Mock(name="supabase_client")
         
     def check_duplicate_urls(self, urls):
         return {}
@@ -172,20 +173,26 @@ class TestStoryGroupingPipelineIntegration(unittest.TestCase):
         self.assertTrue(pipeline._should_run_story_grouping())
 
     @patch('src.nfl_news_pipeline.orchestrator.pipeline.StoryGroupingOrchestrator')
+    @patch('src.nfl_news_pipeline.orchestrator.pipeline.GroupCentroidManager')
+    @patch('src.nfl_news_pipeline.orchestrator.pipeline.GroupStorageManager')
     @patch('src.nfl_news_pipeline.orchestrator.pipeline.GroupManager')
     @patch('src.nfl_news_pipeline.orchestrator.pipeline.EmbeddingGenerator')
     @patch('src.nfl_news_pipeline.orchestrator.pipeline.SimilarityCalculator')
     @patch('src.nfl_news_pipeline.orchestrator.pipeline.URLContextExtractor')
     @patch('src.nfl_news_pipeline.orchestrator.pipeline.EmbeddingErrorHandler')
     @patch('src.nfl_news_pipeline.orchestrator.pipeline.ConfigManager')
-    def test_story_grouping_orchestrator_initialization(self, 
-                                                       mock_config_manager,
-                                                       mock_error_handler,
-                                                       mock_context_extractor,
-                                                       mock_similarity_calculator,
-                                                       mock_embedding_generator,
-                                                       mock_group_manager,
-                                                       mock_story_grouping_orchestrator):
+    def test_story_grouping_orchestrator_initialization(
+        self,
+        mock_config_manager,
+        mock_error_handler,
+        mock_context_extractor,
+        mock_similarity_calculator,
+        mock_embedding_generator,
+        mock_group_manager,
+        mock_group_storage_manager,
+        mock_centroid_manager,
+        mock_story_grouping_orchestrator,
+    ):
         """Test that story grouping orchestrator is properly initialized."""
         # Setup config manager
         mock_cm = Mock()
@@ -216,11 +223,21 @@ class TestStoryGroupingPipelineIntegration(unittest.TestCase):
         mock_story_grouping_orchestrator.assert_called_once()
         
         # Verify components were initialized
-        mock_context_extractor.assert_called_once()
-        mock_embedding_generator.assert_called_once()
+        expected_openai_key = os.getenv("OPENAI_API_KEY")
+        expected_google_key = os.getenv("GOOGLE_API_KEY")
+        mock_context_extractor.assert_called_once_with(
+            openai_api_key=expected_openai_key,
+            google_api_key=expected_google_key,
+        )
+        mock_embedding_generator.assert_called_once_with(openai_api_key=expected_openai_key)
         mock_similarity_calculator.assert_called_once()
         mock_error_handler.assert_called_once()
-        mock_group_manager.assert_called_once_with(self.storage)
+        mock_group_storage_manager.assert_called_once_with(self.storage.client)
+        mock_group_manager.assert_called_once_with(
+            mock_group_storage_manager.return_value,
+            mock_similarity_calculator.return_value,
+            mock_centroid_manager.return_value,
+        )
 
     @patch('asyncio.run')
     @patch('src.nfl_news_pipeline.orchestrator.pipeline.ConfigManager')
@@ -377,14 +394,20 @@ class TestStoryGroupingPipelineIntegration(unittest.TestCase):
             storage=self.storage,
             audit=self.audit
         )
-        
+
+        # Ensure story grouping is considered enabled for this test
+        pipeline.cm = Mock()
+        mock_defaults = DefaultsConfig()
+        mock_defaults.enable_story_grouping = True
+        pipeline.cm.get_defaults.return_value = mock_defaults
+
         # Mock import error
-        with patch('src.nfl_news_pipeline.orchestrator.pipeline.StoryGroupingOrchestrator', 
+        with patch('src.nfl_news_pipeline.orchestrator.pipeline.StoryGroupingOrchestrator',
                   side_effect=ImportError("Module not found")):
-            
+
             orchestrator = pipeline._get_story_grouping_orchestrator()
             self.assertIsNone(orchestrator)
-            
+
             # Verify error was logged
             error_events = [event for event in self.audit.events if event[0] == "error"]
             self.assertTrue(len(error_events) > 0)

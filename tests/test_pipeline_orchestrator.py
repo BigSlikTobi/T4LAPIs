@@ -78,6 +78,10 @@ def make_item(name: str, url: str, title: str, dt: datetime):
 
 
 def test_pipeline_orchestrator_basic_monolithic(monkeypatch):
+    # Ensure deterministic behavior: run in rule-only mode and avoid remote entity dictionary
+    monkeypatch.setenv("NEWS_PIPELINE_DISABLE_LLM", "1")
+    monkeypatch.setenv("NEWS_PIPELINE_DISABLE_ENTITY_DICT", "1")
+    monkeypatch.setenv("NEWS_PIPELINE_DISABLE_ENTITY_LLM", "1")
     # Two sources: one RSS with two items, one sitemap with one recent item
     now = datetime.now(timezone.utc)
     feeds = [

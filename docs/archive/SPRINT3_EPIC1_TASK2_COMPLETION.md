@@ -1,4 +1,10 @@
-# Sprint 3 Epic 1 Task 2 - COMPLETED ✅
+# Sprint 3 Epic 1 Task 2 - COMPLETED ✅ (Archived)
+
+Archived note: This document has been archived for historical reference. For up-to-date instructions, see:
+- docs/GitHub_Actions_Setup.md
+- README.md (automation/workflows section)
+
+---
 
 ## 📋 Task Summary
 **Create GitHub Actions workflow for personalized summaries that runs periodically (e.g., every hour)**
@@ -49,24 +55,24 @@
 - **Workflow Documentation**: Updated project structure and workflow descriptions
 - **Quick Reference**: Link to setup guide for easy access
 
-## 🔧 Technical Implementation
+## 🛠 Technical Implementation
 
 ### Workflow Architecture
 ```yaml
 name: 🤖 Personalized Summary Generation
 on:
-  schedule:
-    - cron: '0 6-23 * * *'  # Every hour, 6 AM to 11 PM UTC
-  workflow_dispatch:        # Manual trigger
-    inputs:
-      force_generation:
-        description: 'Force generation even without new content'
-        required: false
-        default: 'false'
-      lookback_hours:
-        description: 'Hours to look back for content'
-        required: false
-        default: '24'
+	schedule:
+		- cron: '0 6-23 * * *'  # Every hour, 6 AM to 11 PM UTC
+	workflow_dispatch:        # Manual trigger
+		inputs:
+			force_generation:
+				description: 'Force generation even without new content'
+				required: false
+				default: 'false'
+			lookback_hours:
+				description: 'Hours to look back for content'
+				required: false
+				default: '24'
 ```
 
 ### Security & Environment
@@ -111,18 +117,18 @@ python test_workflow.py
 
 ### Required Setup (Post-Deployment)
 1. **Configure GitHub Secrets** (4 required):
-   - `SUPABASE_URL`
-   - `SUPABASE_KEY` 
-   - `GEMINI_API_KEY`
-   - `DEEPSEEK_API_KEY`
+	 - `SUPABASE_URL`
+	 - `SUPABASE_KEY` 
+	 - `GEMINI_API_KEY`
+	 - `DEEPSEEK_API_KEY`
 
 2. **Test Manual Trigger**:
-   - Navigate to Actions → "🤖 Personalized Summary Generation"
-   - Click "Run workflow" with test parameters
+	 - Navigate to Actions → "🤖 Personalized Summary Generation"
+	 - Click "Run workflow" with test parameters
 
 3. **Monitor First Automated Run**:
-   - Check logs for any configuration issues
-   - Verify summaries generated in database
+	 - Check logs for any configuration issues
+	 - Verify summaries generated in database
 
 ## 📈 Expected Performance
 

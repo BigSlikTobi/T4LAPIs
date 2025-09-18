@@ -1,751 +1,555 @@
-# T4LAPIs - NFL Data Management System
+# T4LAPIs – NFL News, Data, and AI Content Platform
 
-A comprehensive Python-based system for fetching, transforming, and loading NFL data into Supabase databases. This project provides automated data pipelines, CLI tools, and robust data management capabilities for NFL analytics applications.
+One unified toolkit to fetch, filter, group, and serve NFL news and data—complete with automation, an API, and AI-generated summaries. This README consolidates all docs and explains how to run every feature for both non-technical and technical users.
 
-## 🏈 Overview
+• New here? Start with Quick Start.  
+• Want details? See Vision, requirements, and design.  
+• Just run it? Jump to How to run every feature.
 
-T4LAPIs is designed to handle complete NFL data workflows, from fetching raw data via the `nfl_data_py` library to loading processed data into Supabase databases. The system supports both one-time data loads and automated recurring updates through GitHub Actions workflows.
+## Table of Contents
 
-### Key Features
+- Quick Start (5 minutes)
+- What this project does
+- At-a-glance features
+- Repository map
+- Vision, requirements, and design
+- Install and setup
+- How the scripts work
+- How to run every feature
+- Entity linking DB setup (optional)
+- Docker quick start
+- Deployment scripts (story grouping)
+- Testing
+- Troubleshooting and tips
+- Links to all docs
+- License and contributions
+- Thanks
 
-- **📊 Comprehensive NFL Data Coverage**: 24+ different NFL datasets including teams, players, games, statistics, injuries, and advanced analytics
-- **🔄 Automated Data Pipelines**: GitHub Actions workflows for scheduled data updates
-– **🤖 AI-Powered Content Generation**: Automated personalized summaries using Gemini 1.5 Flash + OpenAI gpt-5-nano entity extraction
-- **📰 Story Grouping & Similarity Clustering**: Intelligent news story clustering using semantic similarity and LLM context analysis
-- **🔍 Trending Summary Generator**: AI-powered comprehensive summaries for trending NFL entities with pipeline integration
-- **🛠️ CLI Tools**: Command-line interfaces for manual data operations
-- **📈 Smart Update Logic**: Intelligent detection of data gaps and incremental updates
-- **🌐 Google Search Grounding**: Real-time NFL information retrieval for enhanced accuracy
-- **🧪 Full Test Coverage**: Comprehensive test suite ensuring reliability (60+ tests including 34+ LLM tests)
-- **🐳 Docker Support**: Containerized deployment and execution
-- **🔧 Modular Architecture**: Separated concerns for fetching, transforming, and loading data
-- **🚀 FastAPI REST API**: Complete CRUD operations for user and preference management with 7 endpoints
+## Quick Start (5 minutes)
 
-## 📁 Project Structure
+Prerequisites
+- Python 3.11+
 
+Steps
+1) Clone and set up a virtual environment
 ```
-T4LAPIs/
-├── src/                        # Core application code
-│   └── core/
-│       ├── data/              # Data management modules
-For a friendly step-by-step setup, read docs/Getting_Started.md.
-
-### LLM-backed entity extraction
-- The pipeline uses a small LLM to help extract players and teams from titles/descriptions, validated against our NFL dictionary.
-- It’s enabled by default. To disable, set:
-    - NEWS_PIPELINE_ENTITY_LLM=0
-    - Or, to bypass LLM wiring in the orchestrator entirely: NEWS_PIPELINE_DISABLE_ENTITY_LLM=1
-- Provide your LLM API key if needed (see docs/Getting_Started.md) to improve entity accuracy; without a key, the pipeline will fall back to rules and aliases.
-
-Default model and controls:
-- Uses OpenAI gpt-5-nano by default for entity extraction.
-- Override with OPENAI_ENTITY_MODEL or OPENAI_MODEL. Configure timeout via OPENAI_TIMEOUT.
-
-│       └── utils/             # Utility functions
-├── content_generation/        # AI-powered content generation
-│   ├── personal_summary_generator.py  # Gemini-powered personalized summaries
-│   └── trending_summary_generator.py  # AI summaries for trending entities
-├── api/                       # FastAPI REST API
-│   ├── main.py               # Complete CRUD API with 7 endpoints
-│   ├── Dockerfile            # Container configuration
-│   ├── docker-compose.yml    # Development deployment
-│   └── test_endpoints.py     # API testing scripts
-├── scripts/                   # CLI tools and automation scripts
-│   ├── trending_topic_detector.py      # Trending NFL entity detection
-│   ├── llm_entity_linker_cli.py        # LLM entity linking
-│   ├── teams_cli.py                    # Team data management
-│   ├── players_cli.py                  # Player data management
-│   └── ...                             # Other CLI tools
-├── tests/                     # Test suite (50+ comprehensive tests)
-├── docs/                      # Documentation (centralized)
-├── .github/workflows/         # GitHub Actions automation
-│   ├── games-auto-update.yml         # Automated game data updates
-│   ├── player_weekly_stats_update.yml # Weekly stats automation
-│   └── personal_summary_generation.yml # Hourly personalized summaries
-├── examples/                  # Usage examples
-├── injury_updates/            # Injury data specific tools
-├── roster_updates/           # Roster data specific tools
-└── Dockerfile                # Container configuration
-```
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Python 3.8+
-- Supabase account and database
-- Environment variables configured (see [Environment Setup](#environment-setup))
-
-### Installation
-
-```bash
-# Clone the repository
 git clone https://github.com/BigSlikTobi/T4LAPIs.git
 cd T4LAPIs
-
-# Install dependencies
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
-# Set up environment variables
-cp .env.example .env
-# Edit .env with your Supabase credentials
 ```
 
-### Basic Usage
+2) Dry-run a few features (no DB writes, no API keys needed)
+```
+# List pipeline sources then dry-run
+python scripts/pipeline_cli.py list-sources --config feeds.yaml
+python scripts/pipeline_cli.py run --config feeds.yaml --dry-run --disable-llm
 
-```bash
-# Load team data
+# Try a data loader
 python scripts/teams_cli.py --dry-run
-
-# Load player data for 2024 season
-python scripts/players_cli.py 2024 --dry-run
-
-# Load game schedules for 2024
-python scripts/games_cli.py 2024 --dry-run
-
-# Load weekly player statistics
-python scripts/player_weekly_stats_cli.py 2024 --week 1 --dry-run
-
-# Detect trending NFL entities
-python scripts/trending_topic_detector.py --hours 168 --top-n 5
-
-# Generate AI summaries for trending entities
-python content_generation/trending_summary_generator.py --entity-ids "KC,00-0033873" --dry-run
-
-# Pipeline trending detection → summary generation
-python scripts/trending_topic_detector.py --entity-ids-only | python content_generation/trending_summary_generator.py --from-stdin
-
-# Run LLM-enhanced entity linking
-python scripts/llm_entity_linker_cli.py test --text "Patrick Mahomes threw for 300 yards as the Chiefs beat the 49ers."
-
-# Process articles with LLM entity linking
-python scripts/llm_entity_linker_cli.py run --batch-size 20 --max-batches 5
 ```
 
-**⚠️ LLM Entity Linking Setup**: For optimal performance, manually create the `get_unlinked_articles` SQL function in Supabase (see [Manual Database Setup](#🔧-manual-database-setup-for-llm-entity-linking)).
-
-## 🔗 Story Grouping & Similarity Clustering
-
-The system includes intelligent story grouping functionality that automatically clusters similar news stories based on semantic similarity. This feature helps identify duplicate coverage, track story evolution, and organize content efficiently.
-
-### Story Grouping Features
-
-✅ **Automatic Story Clustering**
-- Semantic similarity analysis using embeddings
-- LLM-powered context extraction from URLs
-- Centroid-based clustering for efficiency
-- Incremental processing of new stories
-
-✅ **Pipeline Integration**
-- Seamless integration as post-processing step
-- Configurable via feeds.yaml or environment variables
-- Dry-run support for testing
-- Comprehensive error handling and logging
-
-✅ **CLI Tools for Management**
-- 4 specialized commands for different workflows
-- Batch processing for existing story backfill
-- Progress tracking and resume capabilities
-- Analytics and reporting functionality
-
-### Quick Start - Story Grouping
-
-```bash
-# Enable story grouping in pipeline
-python scripts/pipeline_cli.py run --enable-story-grouping --dry-run
-
-# Process recent stories manually
-python scripts/pipeline_cli.py group-stories --max-stories 50 --dry-run
-
-# Check grouping status
-python scripts/pipeline_cli.py group-status
-
-# Backfill existing stories in batches
-python scripts/pipeline_cli.py group-backfill --batch-size 25 --dry-run
-
-# Generate analytics report
-python scripts/pipeline_cli.py group-report --format json
+3) Optional: start the API
+```
+cd api && python main.py
+# Open http://localhost:8000/docs
 ```
 
-### Configuration
+For full setup (DB + LLM), see Install and setup.
 
-Add to your `feeds.yaml`:
+## What this project does
 
-```yaml
+- Collects NFL news URLs and metadata from RSS/sitemaps defined in `feeds.yaml` (no page scraping)
+- Filters for NFL relevance (rules + optional LLM assist) and writes to Supabase
+- Groups similar stories via embeddings + LLM URL-context to track story evolution
+- Loads core NFL datasets (teams, players, games, weekly stats)
+- Generates AI content (personalized updates, trending summaries)
+- Exposes a FastAPI for user and preference management
+- Automates all the above with smart update scripts and GitHub Actions
+
+## At-a-glance features
+
+- NFL news pipeline with incremental watermarks and audit trail
+- Story similarity grouping (centroid-based, incremental)
+- LLM-assisted entity extraction and URL-context (configurable, cacheable)
+- Data loaders and auto-update scripts for teams, players, games, and stats
+- AI content: personalized updates and trending summaries
+- FastAPI with 7 endpoints for users and preferences
+- Dockerized, tested, and documented
+
+## Repository map (high level)
+
+```
+api/                       # FastAPI (7 endpoints, Swagger/ReDoc)
+content_generation/        # AI generators: personal & trending summaries
+docs/                      # Reference docs (linked below)
+examples/                  # Small demos to try features
+scripts/                   # All CLIs and automation
+db/migrations/             # SQL migrations (incl. story grouping schema)
+```
+
+For an easy first run, read docs/Getting_Started.md.
+
+## Visual architecture and flow
+
+The diagrams below connect the NFL News Pipeline and Story Similarity Grouping and show how features within each flow together.
+
+![Architecture Flow](docs/diagrams/architecture-flow.svg)
+
+![Pipeline Sequence](docs/diagrams/pipeline-sequence.svg)
+
+Tips
+- Toggle story grouping with --enable-story-grouping or env NEWS_PIPELINE_ENABLE_STORY_GROUPING=1.
+- To rerun everything regardless of prior watermarks, use --ignore-watermark or env NEWS_PIPELINE_IGNORE_WATERMARK=1.
+- Use --dry-run to explore without DB writes; grouping requires a real DB client (Supabase) to persist results.
+
+### DB legend (key tables and payloads)
+
+- news_urls: One row per ingested URL with public metadata only
+    - Columns: id, source, publisher, url (unique), title, published_at, description, relevance_score, created_at, updated_at
+- source_watermarks: Per-source incremental cursor
+    - Columns: id, source (unique), last_processed_at, updated_at
+- pipeline_audit_log: Filtering decisions and rationale per URL
+    - Columns: id, news_url_id (fk -> news_urls), stage (rule|llm), method, score, rationale, model_id, created_at
+- context_summaries: LLM URL-context summary (metadata-only)
+    - Columns: id, news_url_id (fk -> news_urls), summary_text, model_id, created_at
+- story_embeddings: Vector embedding for each context summary
+    - Columns: id, news_url_id (fk -> news_urls), embedding_vector, model_name, model_version, generated_at, confidence_score
+- story_groups: Group metadata and centroid
+    - Columns: id, centroid_embedding, member_count, status (new|updated|stable), tags[], created_at, updated_at
+- story_group_members: Membership join table
+    - Columns: id, group_id (fk -> story_groups), news_url_id (fk -> news_urls), similarity_score, added_at
+
+### Diagrams
+
+Static SVGs are included under docs/diagrams/ for portability:
+- docs/diagrams/architecture-flow.svg
+- docs/diagrams/pipeline-sequence.svg
+
+## Vision, requirements, and design
+
+These documents define what we’re building and how it works under the hood:
+
+- Product requirements (news pipeline): docs/specs/nfl-news-pipeline/requirements.md
+- Design (news pipeline): docs/specs/nfl-news-pipeline/design.md
+- Product requirements (story grouping): docs/specs/story-similarity-grouping/requirements.md
+- Design (story grouping): docs/specs/story-similarity-grouping/design.md
+
+Additional how-tos and deep dives:
+
+- Getting Started: docs/Getting_Started.md
+- CLI Tools Guide: docs/CLI_Tools_Guide.md
+- Automation Workflows: docs/Automation_Workflows.md
+- Auto-Update Scripts: docs/Auto_Update_Scripts.md
+- Story Grouping Integration: docs/story_grouping_integration.md
+- Story Grouping Config: docs/Story_Grouping_Configuration.md
+- API Reference: docs/API_Reference.md
+- NFL Data Reference: docs/NFL_Data_Reference.md
+- Testing Guide: docs/Testing_Guide.md
+- Technical Details: docs/Technical_Details.md
+- Troubleshooting: docs/Troubleshooting.md
+- LLM Test Coverage: docs/LLM_Test_Coverage.md
+- Story Grouping Test Summary: docs/Story_Grouping_Test_Coverage_Summary.md
+
+## Install and setup
+
+Prerequisites
+- Python 3.11+
+- macOS/Linux/Windows
+- Optional: Supabase project (for DB writes)
+- Optional: LLM API key(s) for AI features
+
+Install
+```
+git clone https://github.com/BigSlikTobi/T4LAPIs.git
+cd T4LAPIs
+python3 -m venv .venv
+source .venv/bin/activate  # macOS/Linux
+pip install -r requirements.txt
+```
+
+Environment (only required for DB writes or LLM features)
+```
+# Create .env at the repo root and add as needed
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_service_or_anon_key
+
+# Optional LLM keys
+OPENAI_API_KEY=...
+GEMINI_API_KEY=...
+DEEPSEEK_API_KEY=...
+
+# Optional tuning
+LOG_LEVEL=INFO
+```
+
+Tip: Most commands support --dry-run so you can explore safely without DB writes.
+
+## Configuration: what to edit and how to use it
+
+There are two configuration layers:
+
+1) feeds.yaml (root)
+    - Defines sources for the news pipeline (RSS/sitemaps/HTML) and per-source options
+    - Also supports top-level defaults and optional story-grouping toggles (see example below)
+    - Typical commands use this file via --config feeds.yaml
+
+2) story_grouping_config.yaml (root)
+    - Detailed settings for the story similarity grouping feature (LLM, embeddings, thresholds, performance, monitoring)
+    - Loaded by grouping scripts and the pipeline when grouping is enabled
+
+Recommended setup
+- Keep feeds.yaml as your primary pipeline config.
+- Keep story_grouping_config.yaml for grouping-specific tuning.
+
+Example: enable grouping in feeds.yaml
+```
 defaults:
   enable_story_grouping: true
   story_grouping_max_parallelism: 4
   story_grouping_max_stories_per_run: 100
 ```
 
-Or use environment variable:
-```bash
+Run with grouping on (dry run)
+```
+python scripts/pipeline_cli.py run --config feeds.yaml --enable-story-grouping --dry-run
+```
+
+Where to find a fuller example
+- docs/examples/feeds_with_story_grouping.yaml – a complete feeds.yaml variant with grouping options enabled.
+
+Environment overrides
+- NEWS_PIPELINE_ENABLE_STORY_GROUPING=1 to force-enable grouping
+- LOG_LEVEL, OPENAI_API_KEY, GEMINI_API_KEY, DEEPSEEK_API_KEY as needed (see story_grouping_config.yaml for details)
+
+## How the scripts work (friendly overview)
+
+This project is script-first: each feature is a CLI. Here’s what they do and when to use them.
+
+News pipeline and grouping
+- scripts/pipeline_cli.py: Orchestrates the news pipeline (list/validate/run/status). Can also run story grouping: group-stories, group-backfill, group-status, group-report.
+- scripts/story_grouping_dry_run.py: Run story grouping logic without writing to DB (good for demos).
+- scripts/story_grouping_batch_processor.py: Backfill older stories in batches with resume support.
+- scripts/story_grouping_cli_demo.py: Small CLI demo for grouping flows.
+
+AI and entity tools
+- scripts/llm_entity_linker_cli.py: Use an LLM to extract and validate entities in articles (test, run, stats).
+- scripts/entity_dictionary_cli.py: Inspect and manage the internal entity dictionary (search, stats, export).
+- content_generation/personal_summary_generator.py: Generate personalized user updates into DB.
+- content_generation/trending_summary_generator.py: Create summaries for trending teams/players; can read from stdin for pipeline chaining.
+- scripts/trending_topic_detector.py: Detect trending entities using recent content and signals.
+
+NFL data loaders and auto-updaters
+- scripts/teams_cli.py: Load teams.
+- scripts/players_cli.py: Load player rosters for seasons.
+- scripts/games_cli.py: Load schedules/results per season/week.
+- scripts/player_weekly_stats_cli.py: Load weekly player stats.
+- scripts/games_auto_update.py: Smart weekly game updater (current and next week).
+- scripts/player_weekly_stats_auto_update.py: Smart player stats updater (gaps + recent corrections).
+
+Utilities and demos
+- scripts/setup_entity_linking_db.py: Create indexes/structures used by entity linking.
+- scripts/news_fetch_demo.py and examples/*: Simple demos to see parts of the system in action.
+- scripts/live_story_context_test.py: Quick test of URL-context capabilities.
+
+Deployment helpers
+- scripts/deploy_story_grouping.py: Validate/setup/configure story grouping end-to-end (validate, setup, config, test, deploy).
+- scripts/deploy_story_grouping.sh: Shell wrapper to validate environment and deploy with flags.
+
+Database migrations
+- db/migrations/002_story_grouping_schema.sql: Schema for story embeddings, groups, and membership. Apply in Supabase SQL editor if you plan to use story grouping in production.
+
+## How to run every feature
+
+Add --dry-run to preview without writing to DB.
+
+1) News Pipeline (fetch → filter → store)
+
+```
+# List configured sources
+python scripts/pipeline_cli.py list-sources --config feeds.yaml
+
+# Validate config
+python scripts/pipeline_cli.py validate --config feeds.yaml
+
+# Dry run all sources (no DB writes, no LLM)
+python scripts/pipeline_cli.py run --config feeds.yaml --dry-run --disable-llm
+
+# Run a single source (writes to DB if .env set)
+python scripts/pipeline_cli.py run --config feeds.yaml --source espn
+
+# Status and health
+python scripts/pipeline_cli.py status --config feeds.yaml
+```
+
+2) Story Grouping (semantic clustering of similar stories)
+
+Enable via config or env
+
+```
+# feeds.yaml
+defaults:
+    enable_story_grouping: true
+    story_grouping_max_parallelism: 4
+    story_grouping_max_stories_per_run: 100
+```
+
+```
 export NEWS_PIPELINE_ENABLE_STORY_GROUPING=1
 ```
 
-**📖 Complete Guide**: See [docs/story_grouping_integration.md](docs/story_grouping_integration.md) for detailed configuration and usage instructions.
+Run it
 
-## 🚀 FastAPI REST API
+```
+# Run pipeline with grouping
+python scripts/pipeline_cli.py run --enable-story-grouping --dry-run
 
-The project includes a complete FastAPI-based REST API for managing users and their NFL team/player preferences.
+# Manual grouping of recent items
+python scripts/pipeline_cli.py group-stories --max-stories 50 --dry-run
 
-### API Features
+# Backfill at scale
+python scripts/pipeline_cli.py group-backfill --batch-size 25 --dry-run
 
-✅ **Complete CRUD Operations**
-- User management (create, delete) 
-- Preference management (create, read, update, delete individual/bulk)
-- UUID validation and comprehensive error handling
-- CASCADE deletion support (deleting user removes all preferences)
-
-✅ **7 API Endpoints**
-- `POST /users/` - Create user
-- `DELETE /users/{user_id}` - Delete user 
-- `POST /users/{user_id}/preferences` - Set user preferences
-- `GET /users/{user_id}/preferences` - Get user preferences
-- `PUT /users/{user_id}/preferences/{preference_id}` - Update specific preference  
-- `DELETE /users/{user_id}/preferences` - Delete all user preferences
-- `DELETE /users/{user_id}/preferences/{preference_id}` - Delete specific preference
-
-✅ **Production Ready**
-- Docker containerization with security hardening
-- Interactive API documentation (Swagger UI + ReDoc)
-- Comprehensive error handling and validation
-- Database integration with Supabase
-
-### Quick Start API
-
-#### 1. Activate Virtual Environment (REQUIRED)
-```bash
-# Navigate to project root
-cd T4LAPIs
-
-# Activate virtual environment - THIS IS REQUIRED
-source venv/bin/activate
+# Status and report
+python scripts/pipeline_cli.py group-status
+python scripts/pipeline_cli.py group-report --format json
 ```
 
-#### 2. Run the API
+3) LLM Entity Linking (players/teams from text)
 
-**Option A: Local Development (Recommended)**
-```bash
-# Make sure you're in the api directory and venv is activated
+```
+# Quick test
+python scripts/llm_entity_linker_cli.py test --text "Patrick Mahomes shines as Chiefs beat 49ers"
+
+# Process unlinked articles in batches
+python scripts/llm_entity_linker_cli.py run --batch-size 20 --max-batches 5
+
+# Stats
+python scripts/llm_entity_linker_cli.py stats
+```
+
+Recommended DB helper: in Supabase SQL editor, add a function to fetch unlinked articles efficiently. See the “Manual DB function” snippet in this README under “Entity linking DB setup.”
+
+4) AI Content Generation
+
+Trending summaries
+
+```
+# Detect trending entities
+python scripts/trending_topic_detector.py --hours 168 --top-n 5
+
+# Generate summaries (direct)
+python content_generation/trending_summary_generator.py --entity-ids "KC,00-0033873" --dry-run
+
+# Pipeline (detector → generator)
+python scripts/trending_topic_detector.py --entity-ids-only | \
+    python content_generation/trending_summary_generator.py --from-stdin
+```
+
+Personalized user updates
+
+```
+python content_generation/personal_summary_generator.py
+```
+
+5) NFL Data Loaders (teams/players/games/stats)
+
+```
+# Teams
+python scripts/teams_cli.py --dry-run
+
+# Players (one or more seasons)
+python scripts/players_cli.py 2024 --dry-run
+
+# Games (season or a specific week)
+python scripts/games_cli.py 2024 --dry-run
+python scripts/games_cli.py 2024 --week 1 --dry-run
+
+# Player weekly stats
+python scripts/player_weekly_stats_cli.py 2024 --weeks 1 2 3 --dry-run
+```
+
+6) Smart Auto-Update (for CI and ops)
+
+```
+# Games: upsert current week + insert next week
+python scripts/games_auto_update.py
+
+# Player stats: fill gaps + update recent corrections
+python scripts/player_weekly_stats_auto_update.py
+```
+
+7) FastAPI (users and preferences)
+
+```
 cd api
 python main.py
+
+# Docs
+# http://localhost:8000/docs (Swagger)
+# http://localhost:8000/redoc (ReDoc)
 ```
 
-**Option B: Docker (Production)**
-```bash
-# Build and run with Docker Compose
+Docker option
+
+```
 cd api
 docker-compose up -d --build
-
-# Or use the helper script
-./docker.sh compose
 ```
 
-#### 3. Test the API
+8) Examples and additional runners
 
-```bash
-# Health check
-curl http://localhost:8000/health
+```
+# Examples
+python examples/embedding_demo.py
+python examples/fetch_data_example.py
+python examples/main_fetch_demo.py
 
-# Create user
-curl -X POST http://localhost:8000/users/
+# Demos (story grouping, monitoring, and internals)
+python examples/demo_story_grouping.py
+python examples/demo_similarity_grouping.py
+python examples/demo_group_manager.py
+python examples/demo_group_storage_manager.py
+python examples/demo_monitoring.py
 
-# Set preferences (replace {user_id} with actual UUID)
-curl -X POST -H "Content-Type: application/json" \
-  -d '{"entities": [{"entity_id": "KC", "type": "team"}]}' \
-  http://localhost:8000/users/{user_id}/preferences
+# Injury and roster update runners (basic entry points)
+python injury_updates/main.py
+python roster_updates/main.py
+
+# See help for options where available
+python injury_updates/main.py -h || true
+python roster_updates/main.py -h || true
 ```
 
-#### 4. Interactive Documentation
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
+Examples overview
+- examples/demo_story_grouping.py: End-to-end story grouping flow (dry-run friendly)
+- examples/demo_similarity_grouping.py: Similarity scoring and centroid grouping on a small set
+- examples/demo_group_manager.py: Low-level group manager operations (create/update/merge)
+- examples/demo_group_storage_manager.py: Storage-layer CRUD against DB (requires .env DB config)
+- examples/demo_monitoring.py: Monitoring metrics, alerts, and analytics showcase
+- examples/embedding_demo.py: Generate embeddings and compute pairwise similarities
+- examples/fetch_data_example.py: Fetch news data via configured feeds
+- examples/main_fetch_demo.py: Orchestrated fetch run with status output
 
-For complete API documentation, see: [📚 API Reference](docs/API_Reference.md)
+Tip: Use --dry-run where available to explore safely without DB writes. For storage demos, ensure your .env has Supabase credentials.
 
-## 📊 Available NFL Data
+## Entity linking DB setup (optional but recommended)
 
-The system provides access to **24 different NFL datasets** with **841+ columns** across:
+For optimal performance when running `llm_entity_linker_cli.py run`, add this helper in Supabase (SQL editor):
 
-- **Core Tables**: Teams, Players, Games, Weekly Statistics
-- **Advanced Stats**: Play-by-Play, Next Gen Stats, PFF Data
-- **Personnel Data**: Draft picks, Combine results, Contracts, Depth charts
-- **Specialized Data**: Injuries, Officials, Betting lines, Formation data
-
-## 🧰 NFL News Pipeline CLI
-
-Run validations and status:
-
-- Validate config: `python scripts/pipeline_cli.py validate --config feeds.yaml`
-- Status/health: `python scripts/pipeline_cli.py status --config feeds.yaml`
-
-Run the pipeline:
-
-- Dry-run (no DB writes): `python scripts/pipeline_cli.py run --config feeds.yaml --dry-run`
-- Single source: `python scripts/pipeline_cli.py run --config feeds.yaml --source espn`
-- Disable LLM: `python scripts/pipeline_cli.py run --disable-llm`
-
-The pipeline respects SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY, and cache flags (NEWS_PIPELINE_LLM_CACHE*).
-- **Entity Linking**: LLM-enhanced extraction and linking of players and teams from text
-
-For detailed information about available datasets, see: [📋 NFL Data Reference](docs/NFL_Data_Reference.md)
-
-## 🔧 Core Components
-
-### Data Management Pipeline
-
-1. **[Fetch](src/core/data/fetch.py)**: Raw data retrieval from `nfl_data_py`
-2. **[Transform](src/core/data/transform.py)**: Data cleaning, validation, and formatting
-3. **[Load](src/core/data/loaders/)**: Database insertion with conflict resolution
-
-### CLI Tools
-
-Located in the `scripts/` directory, these tools provide command-line interfaces for:
-
-- **trending_topic_detector.py**: Trending NFL entity detection and analysis
-- **trending_summary_generator.py**: AI-powered comprehensive summaries for trending entities
-- **teams_cli.py**: Team data management
-- **players_cli.py**: Player roster management  
-- **games_cli.py**: Game schedule management
-- **player_weekly_stats_cli.py**: Weekly statistics management
-- **llm_entity_linker_cli.py**: LLM-enhanced entity linking and extraction
-- **entity_dictionary_cli.py**: Entity dictionary management and utilities
-- **setup_entity_linking_db.py**: Database index creation (manual SQL function setup required)
-
-**Note**: For optimal LLM entity linking performance, ensure the manual SQL function setup is completed (see [Manual Database Setup](#🔧-manual-database-setup-for-llm-entity-linking)).
-
-For detailed CLI documentation, see: [🛠️ CLI Tools Guide](docs/CLI_Tools_Guide.md)
-
-### Automated Workflows
-
-GitHub Actions workflows provide scheduled data updates:
-
-- **Games Data**: 6 times per week during NFL season
-- **Player Stats**: Weekly after Monday Night Football
-- **Player Rosters**: Weekly on Wednesdays
-- **Team Data**: Monthly updates
-- **Entity Linking**: Every 30 minutes between 16:30-00:30 UTC for article processing
-- **🆕 Personalized Summaries**: Hourly generation (6 AM - 11 PM UTC) using Gemini 1.5 Flash
-
-#### 🤖 Automated Personalized Summary Generation
-
-The system now includes automated generation of personalized NFL summaries powered by Gemini 1.5 Flash:
-
-- **Schedule**: Runs every hour during peak hours (6 AM - 11 PM UTC)
-- **Intelligence**: Uses user preferences to generate tailored content
-- **Fallback**: The generator can use alternative providers if configured
-- **Manual Trigger**: Available for testing and on-demand generation
-
-**Setup**: See [GitHub Actions Setup Guide](docs/GitHub_Actions_Setup.md) for configuration details.
-
-For workflow details, see: [⚙️ Automation Workflows](docs/Automation_Workflows.md)
-
-#### 🔥 Trending Summary Generator (NEW - Epic 2 Task 4)
-
-The system now includes a powerful trending summary generator that creates comprehensive summaries for trending NFL entities identified by the trending topic detector.
-
-**Features**:
-- **🎯 Trending Detection**: Integrates with trending topic detector via pipeline
-- **📰 Multi-Source Intelligence**: Combines recent articles and player statistics  
-- **🤖 Gemini-Powered**: Uses Gemini 2.5 Flash for engaging, journalistic content
-- **💾 Database Storage**: Saves to `trending_entity_updates` table
-- **🔄 Pipeline Integration**: Seamless stdin/stdout connectivity
-- **⚡ Flexible Input**: CLI args, files, or pipe from trending detector
-- **🧪 Dry Run Support**: Preview generation without database saves
-
-**Quick Start**:
-```bash
-# Generate summaries for specific entities
-python content_generation/trending_summary_generator.py --entity-ids "00-0033873,KC,NYJ"
-
-# Pipeline with trending detector (recommended)
-python scripts/trending_topic_detector.py --entity-ids-only | python content_generation/trending_summary_generator.py --from-stdin
-
-# Read from file
-python content_generation/trending_summary_generator.py --input-file trending_entities.txt
-
-# Preview mode (no database saves)
-python content_generation/trending_summary_generator.py --entity-ids "KC" --dry-run
-
-# Custom options
-python content_generation/trending_summary_generator.py --entity-ids "KC" --hours 48 --llm-provider deepseek
 ```
-
-**Example Output**:
-```
-📊 Trending Summary Generation Results:
-   Entities processed: 3
-   Summaries generated: 2  
-   Articles analyzed: 186
-   Stats analyzed: 5
-   Errors encountered: 0
-   Processing time: 18.2s
-   LLM time: 14.7s
-   Success rate: 66.7%
-```
-
-**Database Schema** (`trending_entity_updates`):
-```json
-{
-    "id": "7ffdf99e-aa4d-4451-bb0c-47edcfbed795",
-    "created_at": "2025-08-03T16:14:09.401587+00:00",
-    "trending_content": "**Chiefs Dynasty Continues: Why Kansas City Remains NFL's Elite**\n\nThe Kansas City Chiefs are trending as they solidify their position as the NFL's premier franchise...",
-    "source_articles": [],
-    "source_starts": [],
-    "player_ids": [], 
-    "team_ids": ["KC"]
-}
-```
-
-**Testing**:
-```bash
-# Run comprehensive test suite (32 test cases)
-python -m pytest tests/test_trending_summary_generator.py -v
-```
-
-**Test Coverage**:
-- ✅ TrendingSummary dataclass functionality
-- ✅ Entity type determination and name retrieval
-- ✅ Article and statistics fetching from database
-- ✅ LLM integration with Gemini and DeepSeek fallback
-- ✅ Prompt generation for players and teams
-- ✅ Database storage with correct schema
-- ✅ CLI argument parsing and multiple input methods
-- ✅ Pipeline integration (stdin/stdout)
-- ✅ Error handling and edge cases
-- ✅ Dry run mode and configuration options
-
-**CLI Options**:
-- `--entity-ids`: Comma-separated entity IDs
-- `--input-file`: File containing entity IDs  
-- `--from-stdin`: Read from stdin (pipeline mode)
-- `--hours`: Lookback period (default: 72)
-- `--dry-run`: Preview mode without saves
-- `--llm-provider`: Choose 'gemini' or 'deepseek'
-- `--output-format`: 'summary' or 'json'
-- `--verbose`: Enable debug logging
-
-For detailed implementation, see `content_generation/trending_summary_generator.py` and the comprehensive test suite.
-
-## 🐳 Docker Usage
-
-The project includes Docker support for consistent execution environments:
-
-```bash
-# Build the image
-docker build -t t4lapis-app .
-
-# Run with environment file
-docker run --rm --env-file .env t4lapis-app python scripts/teams_cli.py --dry-run
-
-# Interactive shell for debugging
-docker run --rm -it --env-file .env t4lapis-app bash
-```
-
-## ⚙️ Environment Setup
-
-Required environment variables:
-
-```bash
-SUPABASE_URL=your_supabase_url
-SUPABASE_KEY=your_supabase_anon_key
-DEEPSEEK_API_KEY=your_deepseek_api_key  # For LLM entity linking
-GEMINI_API_KEY=your_gemini_api_key      # For AI content generation (preferred)
-LOG_LEVEL=INFO  # Optional: DEBUG, INFO, WARNING, ERROR
-```
-
-## 🤖 AI Content Generation (NEW - Sprint 3)
-
-The system now includes advanced AI-powered content generation capabilities using **Gemini 1.5 Flash** with optional Google Search grounding for creating personalized NFL summaries and trending topic detection.
-
-### LLM Integration (`src/core/llm/llm_setup.py`)
-
-Unified LLM setup supporting multiple AI providers:
-
-#### Available Models
-- **🌟 Gemini 1.5 Flash** (Primary): Fast, engaging content generation with optional Google Search grounding
-- **🔧 DeepSeek Chat** (Fallback): Reliable entity extraction and backup content generation
-
-#### Quick Setup
-
-```python
-from src.core.llm.llm_setup import initialize_model, generate_content_with_model
-
-# Initialize Gemini with grounding
-gemini_config = initialize_model("gemini", "flash", grounding_enabled=True)
-
-# Initialize DeepSeek as fallback
-deepseek_config = initialize_model("deepseek", "chat")
-
-# Generate content
-messages = [
-    {"role": "system", "content": "You are an NFL expert."},
-    {"role": "user", "content": "Summarize the latest Chiefs news."}
-]
-
-response = generate_content_with_model(gemini_config, messages)
-```
-
-### Personalized Summary Generator
-
-Creates personalized AI summaries for each user based on their preferences, leveraging **Gemini's advanced reasoning** and **Google Search grounding** for accurate, engaging content.
-
-#### Features
-- **🎯 User-Centric**: Processes all users and their individual preferences
-- **📊 Multi-Source Data**: Combines articles, player statistics, and team updates
-- **🧠 Rolling Context**: Uses previous summaries as context for continuity
-- **⚡ Gemini-Powered**: Faster generation with superior content quality
-- **🔍 Google Grounding**: Real-time NFL information retrieval (when enabled)
-- **⏰ Time-Aware**: Configurable lookback periods (default: 24 hours)
-- **💾 Database Integration**: Stores results in `generated_updates` table
-- **🔄 Comprehensive Tracking**: Full statistics and error reporting
-
-#### Quick Start
-
-```bash
-# Run personalized summary generation (24-hour lookback)
-python content_generation/personal_summary_generator.py
-
-# The script will:
-# 1. Process all users with preferences
-# 2. Gather new articles and stats for each entity
-# 3. Generate AI summaries using LLM
-# 4. Store results in generated_updates table
-```
-
-#### Example Output
-```
-📊 Generation Results:
-   Users processed: 15
-   Preferences processed: 47
-   Summaries generated: 42
-   Errors encountered: 0
-   Processing time: 127.3s
-   LLM time: 89.2s
-   Success rate: 89.4%
-```
-
-#### Database Schema
-
-The `generated_updates` table stores personalized summaries:
-
-```json
-{
-    "update_id": "f6b7a8fe-99b4-470c-9efe-129728a3e1d1",
-    "user_id": "00b4b7d6-eabe-4179-955b-3b8a8ab32e95",
-    "entity_id": "00-0033873", // Player ID or team abbreviation
-    "entity_type": "player",   // "player" or "team"
-    "created_at": "2025-08-02T20:13:52.312532+00:00",
-    "update_content": "Patrick Mahomes continues to excel this season with 350 passing yards and 3 TDs in the latest Chiefs victory...",
-    "source_article_ids": [1001, 1002, 1003],
-    "source_stat_ids": ["00-0033873_2024_15"]
-}
-```
-
-#### Testing
-
-Comprehensive test suite with 25 test cases covering:
-- ✅ LLM initialization and error handling
-- ✅ User preference processing and validation  
-- ✅ Article and statistics retrieval
-- ✅ Summary generation with context
-- ✅ Database operations and error scenarios
-- ✅ Complete integration workflow
-
-```bash
-# Run tests for personalized summary generator
-python -m pytest tests/test_personal_summary_generator.py -v
-```
-
-### Technical Implementation
-
-#### Workflow
-1. **User Discovery**: Fetch all users with active preferences
-2. **Content Gathering**: Collect new articles and stats for each entity
-3. **Context Building**: Retrieve previous summaries for rolling context
-4. **AI Generation**: Create personalized summaries using DeepSeek LLM
-5. **Storage**: Save generated content with source tracking
-
-#### LLM Integration
-- **Model**: DeepSeek Chat for high-quality content generation
-- **Prompting**: Structured prompts with previous summary context
-- **Temperature**: 0.7 for engaging, natural content
-- **Token Management**: Smart truncation and content optimization
-
-#### Error Handling
-- **Graceful Degradation**: Continue processing on individual failures
-- **Comprehensive Logging**: Detailed error information for debugging
-- **Statistics Tracking**: Monitor success rates and performance metrics
-- **Retry Logic**: Built-in resilience for LLM API calls
-
-For detailed implementation information, see the source code and tests in `content_generation/`.
-
-### 🔧 Manual Database Setup for LLM Entity Linking
-
-**Important**: Due to Supabase limitations, the following SQL function must be created manually in the Supabase SQL Editor for optimal LLM entity linking performance:
-
-1. Open your Supabase project dashboard
-2. Navigate to **SQL Editor**
-3. Run the following SQL command:
-
-```sql
 CREATE OR REPLACE FUNCTION get_unlinked_articles(batch_limit INTEGER)
 RETURNS SETOF "SourceArticles" AS $$
 BEGIN
-    RETURN QUERY
-    SELECT sa.*
-    FROM "SourceArticles" sa
-    WHERE NOT EXISTS (
-        SELECT 1
-        FROM "article_entity_links" ael
-        WHERE ael.article_id = sa.id
-    )
-    AND sa."contentType" IN ('news_article', 'news-round-up', 'topic_collection')
-    AND sa."Content" IS NOT NULL
-    AND sa."Content" != ''
-    ORDER BY sa.id
-    LIMIT batch_limit;
+        RETURN QUERY
+        SELECT sa.*
+        FROM "SourceArticles" sa
+        WHERE NOT EXISTS (
+                SELECT 1
+                FROM "article_entity_links" ael
+                WHERE ael.article_id = sa.id
+        )
+        AND sa."contentType" IN ('news_article', 'news-round-up', 'topic_collection')
+        AND sa."Content" IS NOT NULL
+        AND sa."Content" != ''
+        ORDER BY sa.id
+        LIMIT batch_limit;
 END;
 $$ LANGUAGE plpgsql;
 ```
 
-**Note**: Without this function, the system will automatically fall back to less efficient query methods, but functionality will remain intact.
-
-## 🧪 Testing
-
-The project includes comprehensive tests covering all major functionality:
-
-```bash
-# Run all tests
-python -m pytest
-
-# Run with coverage
-python -m pytest --cov=src tests/
-
-# Run specific test file
-python -m pytest tests/test_games_auto_update.py -v
-
-# Run LLM-specific tests (34 tests total)
-python -m pytest tests/test_llm_init.py tests/test_llm_entity_linker.py -v
-
-# Run dedicated LLM test runner
-python tests/run_llm_tests.py
-
-# Run FastAPI tests (15+ tests)
-python -m pytest tests/test_fastapi_basic.py tests/test_user_preference_api.py tests/test_crud_operations.py -v
-```
-
-### Test Coverage Summary
-- **Core Data Pipeline**: 15+ tests for fetching, transforming, and loading NFL data
-- **LLM Integration**: 34 comprehensive tests for entity linking and DeepSeek AI integration
-- **FastAPI API**: 15+ tests for complete CRUD operations and error handling
-- **CLI Tools**: Multiple tests for command-line interfaces
-- **Database Operations**: Tests for all database interactions and conflict resolution
-
-For detailed testing documentation, see: [🧪 Testing Guide](docs/Testing_Guide.md) and [🤖 LLM Test Coverage](docs/LLM_Test_Coverage.md)
-
-## 📖 Documentation
-
-### Core Documentation
-
-- [📋 NFL Data Reference](docs/NFL_Data_Reference.md) - Complete data tables and columns reference
-- [🛠️ CLI Tools Guide](docs/CLI_Tools_Guide.md) - Command-line interface documentation  
-- [⚙️ Automation Workflows](docs/Automation_Workflows.md) - GitHub Actions workflows
-- [� GitHub Actions Setup](docs/GitHub_Actions_Setup.md) - Automated personalized summary setup guide
-- [�🧪 Testing Guide](docs/Testing_Guide.md) - Test suite documentation
-- [🔧 Technical Details](docs/Technical_Details.md) - Architecture and implementation details
-- [🚀 API Reference](docs/API_Reference.md) - Complete FastAPI REST API documentation
-- [🤖 LLM Test Coverage](docs/LLM_Test_Coverage.md) - LLM functionality testing documentation
-
-### Specialized Topics
-
-- [🔄 Data Loaders](docs/Data_Loaders.md) - Database loading mechanisms
-- [⚡ Auto-Update Scripts](docs/Auto_Update_Scripts.md) - Smart update logic
-- [🚨 Troubleshooting](docs/Troubleshooting.md) - Common issues and solutions
-
-## 🏗️ Architecture
-
-The system follows a modular architecture with clear separation of concerns:
+## Docker quick start
 
 ```
-Data Flow: NFL API → Fetch → Transform → Validate → Load → Supabase
-                    ↓                                    ↓
-            LLM Entity Linking → Article Processing → Entity Links
-                    ↓
-            FastAPI REST API → User/Preference Management → Database
+docker build -t t4lapis-app .
+docker run --rm --env-file .env t4lapis-app python scripts/teams_cli.py --dry-run
 ```
 
-### Key Design Principles
+## Deployment scripts (story grouping)
 
-- **Separation of Concerns**: Distinct modules for fetching, transforming, and loading
-- **Error Resilience**: Comprehensive error handling and logging
-- **Data Integrity**: Validation and conflict resolution
-- **AI Integration**: LLM-enhanced entity extraction with validation
-- **API-First Design**: RESTful API with complete CRUD operations
-- **Scalability**: Modular design supports easy extension
-- **Maintainability**: Clear code structure and comprehensive tests
+Python-based deployment and validation
 
-## 🎯 Project Status & Achievements
+```
+python scripts/deploy_story_grouping.py validate --verbose
+python scripts/deploy_story_grouping.py setup
+python scripts/deploy_story_grouping.py test
+python scripts/deploy_story_grouping.py config --config-path=story_grouping_config.yaml
+```
 
-### ✅ Epic 2: User & Preference API (COMPLETED)
+Shell-based convenience (validation and deploy flags)
 
-**All Tasks Successfully Completed:**
+```
+./scripts/deploy_story_grouping.sh --dry-run
+./scripts/deploy_story_grouping.sh --environment=prod
+```
 
-#### Task 4: FastAPI Project Setup ✅
-- Modern FastAPI application with proper structure
-- Comprehensive Pydantic v2 models
-- CORS middleware and lifespan management
-- Complete test suite (5 basic functionality tests)
+## Testing
 
-#### Task 5: User & Preference Endpoints ✅
-- **POST /users/** - Create new user with UUID generation
-- **POST /users/{user_id}/preferences** - Set user preferences with validation
-- **GET /users/{user_id}/preferences** - Retrieve user preferences
-- Comprehensive validation and error handling
-- Additional test suite (10 endpoint tests)
+```
+python -m pytest -q
+```
 
-#### Task 6: Docker Containerization ✅
-- Optimized Dockerfile with Python 3.13-slim
-- Docker Compose configuration for easy deployment
-- Security hardening (non-root user)
-- Helper scripts for container management
+For deeper testing topics (coverage, LLM tests, API tests), see: docs/Testing_Guide.md and docs/LLM_Test_Coverage.md.
 
-#### Enhanced CRUD Operations ✅
-- **DELETE /users/{user_id}** - Delete user with CASCADE preference deletion
-- **PUT /users/{user_id}/preferences/{preference_id}** - Update specific preference
-- **DELETE /users/{user_id}/preferences** - Delete all user preferences
-- **DELETE /users/{user_id}/preferences/{preference_id}** - Delete specific preference
+Developer validation scripts
+- For quick, print-based local checks (without pytest), see tools/validation/.
+- Examples:
+    - python tools/validation/test_configuration_integration.py
+    - python tools/validation/test_workflow.py
+    - python tools/validation/test_fallback_query.py
 
-### 🚀 Production Ready Features
-- **7 Complete API Endpoints** with full CRUD operations
-- **34 LLM Tests** ensuring AI functionality reliability
-- **15+ API Tests** covering all endpoints and error scenarios
-- **Interactive Documentation** (Swagger UI + ReDoc)
-- **Database Integration** with Supabase and CASCADE operations
-- **Docker Support** for consistent deployment
+### Developer tasks (VS Code)
 
-## 🤝 Contributing
+If you use VS Code, convenient tasks are available under .vscode/tasks.json:
+- Open the Command Palette → "Run Task" and choose one of:
+    - Setup: Create venv and install deps – run this once to create .venv and install dependencies
+    - Validation: All – runs all scripts in tools/validation
+    - Demos: All – runs all demos in examples
+    - Tests: Pytest (quiet) – runs the test suite (pytest -q)
+    - You can also run each validation/demo individually
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass (`python -m pytest`)
-6. Commit your changes (`git commit -m 'Add amazing feature'`)
-7. Push to the branch (`git push origin feature/amazing-feature`)
-8. Open a Pull Request
 
-## 📄 License
+## Troubleshooting and tips
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+- No DB? Use --dry-run everywhere to explore without writes.
+- Slow/blocked LLM? Add --disable-llm to the pipeline or omit LLM features.
+- Invalid seasons/weeks? Check CLI help; start small (one week).
+- Story grouping slow? Lower max parallelism or limit max stories per run.
+- DB schema for grouping: apply db/migrations/002_story_grouping_schema.sql in Supabase.
 
-## 🙏 Acknowledgments
+More: docs/Troubleshooting.md
 
-- [nfl_data_py](https://github.com/cooperdff/nfl_data_py) - For providing comprehensive NFL data access
-- [Supabase](https://supabase.com/) - For the backend database platform
-- OpenAI - For LLM-powered entity extraction capabilities
-- NFL community - For maintaining and contributing to open-source NFL data
+## Links to all docs (one place)
 
----
+- Configuration Guide: docs/Configuration.md
+- Getting Started: docs/Getting_Started.md
+- CLI Tools Guide: docs/CLI_Tools_Guide.md
+- Auto-Update Scripts: docs/Auto_Update_Scripts.md
+- Story Grouping Integration: docs/story_grouping_integration.md
+- Story Grouping Configuration: docs/Story_Grouping_Configuration.md
+- API Reference: docs/API_Reference.md
+- NFL Data Reference: docs/NFL_Data_Reference.md
+- Automation Workflows: docs/Automation_Workflows.md
+- Testing Guide: docs/Testing_Guide.md
+- Monitoring Guide: docs/Monitoring_Guide.md
+- Technical Details: docs/Technical_Details.md
+- Troubleshooting: docs/Troubleshooting.md
+- LLM Test Coverage: docs/LLM_Test_Coverage.md
+- Story Grouping Test Summary: docs/Story_Grouping_Test_Coverage_Summary.md
+- Requirements (News pipeline): docs/specs/nfl-news-pipeline/requirements.md
+- Design (News pipeline): docs/specs/nfl-news-pipeline/design.md
+- Requirements (Story grouping): docs/specs/story-similarity-grouping/requirements.md
+- Design (Story grouping): docs/specs/story-similarity-grouping/design.md
 
-**Need Help?** Check the [documentation](docs/) or open an issue for support.
+Archived summaries: docs/archive/
+
+## License and contributions
+
+MIT License (see LICENSE). PRs welcome—please include tests when changing public behavior.
+
+## Thanks
+
+- nfl_data_py, Supabase, and the broader NFL analytics community.
+
+If you get stuck, open an issue or browse the docs linked above.
+

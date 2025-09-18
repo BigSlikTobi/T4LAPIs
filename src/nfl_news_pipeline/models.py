@@ -77,7 +77,7 @@ class DefaultsConfig:
     max_parallel_fetches: int = 4
     
     # Story grouping configuration
-    enable_story_grouping: bool = False
+    enable_story_grouping: bool = True
     story_grouping_max_parallelism: int = 4
     story_grouping_max_stories_per_run: Optional[int] = None
     story_grouping_reprocess_existing: bool = False
@@ -254,7 +254,7 @@ class StoryEmbedding:
     def to_db(self) -> Dict[str, Any]:
         self.validate()
         return {
-            k: v
+            k: (v.isoformat() if isinstance(v, datetime) else v)
             for k, v in {
                 "id": self.id,
                 "news_url_id": self.news_url_id,
@@ -315,7 +315,7 @@ class StoryGroup:
     def to_db(self) -> Dict[str, Any]:
         self.validate()
         return {
-            k: v
+            k: (v.isoformat() if isinstance(v, datetime) else v)
             for k, v in {
                 "id": self.id,
                 "centroid_embedding": [float(x) for x in self.centroid_embedding] if self.centroid_embedding is not None else None,
@@ -363,7 +363,7 @@ class StoryGroupMember:
     def to_db(self) -> Dict[str, Any]:
         self.validate()
         return {
-            k: v
+            k: (v.isoformat() if isinstance(v, datetime) else v)
             for k, v in {
                 "id": self.id,
                 "group_id": self.group_id,

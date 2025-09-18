@@ -146,6 +146,20 @@ def _filter_sources(sources: List[FeedConfig], name: Optional[str]) -> List[Feed
     return slugged
 
 
+def _resolve_config_path(path_str: str) -> str:
+    """Resolve config path relative to CWD or repo ROOT fallback.
+
+    Allows calling the CLI from the scripts/ folder with --config feeds.yaml.
+    """
+    p = Path(path_str)
+    if p.exists():
+        return str(p)
+    rp = ROOT / path_str
+    if rp.exists():
+        return str(rp)
+    return str(p)
+
+
 def cmd_status(cm: ConfigManager) -> int:
     # Config info
     enabled = cm.get_enabled_sources()
@@ -180,29 +194,35 @@ def _build_story_grouping_orchestrator(storage):
         from src.nfl_news_pipeline.group_manager import GroupManager
         from src.nfl_news_pipeline.embedding import EmbeddingGenerator, EmbeddingErrorHandler
         from src.nfl_news_pipeline.similarity import SimilarityCalculator
+        from src.nfl_news_pipeline.centroid_manager import GroupCentroidManager
         from src.nfl_news_pipeline.story_grouping import URLContextExtractor
-        
+
         # Initialize components with default settings
         settings = StoryGroupingSettings()
         settings.validate()
-        
+
         # Create components
-        context_extractor = URLContextExtractor()
-        embedding_generator = EmbeddingGenerator()
+        context_extractor = URLContextExtractor(
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            google_api_key=os.getenv("GOOGLE_API_KEY"),
+        )
+        # Prefer OpenAI if key present; generator will fall back automatically otherwise
+        embedding_generator = EmbeddingGenerator(openai_api_key=os.getenv("OPENAI_API_KEY"))
         similarity_calculator = SimilarityCalculator()
         error_handler = EmbeddingErrorHandler()
-        group_manager = GroupManager(storage)
-        
+        # GroupManager expects a storage manager plus similarity and centroid managers
+        centroid_manager = GroupCentroidManager()
+        group_manager = GroupManager(storage, similarity_calculator, centroid_manager)
+
         # Create orchestrator
         orchestrator = StoryGroupingOrchestrator(
             context_extractor=context_extractor,
             embedding_generator=embedding_generator,
             group_manager=group_manager,
-            similarity_calculator=similarity_calculator,
             error_handler=error_handler,
             settings=settings,
         )
-        
+
         return orchestrator
     except ImportError as e:
         print(f"Story grouping components not available: {e}")
@@ -383,7 +403,16 @@ def cmd_group_report(cfg_path: str, *, format_type: str, days_back: int) -> int:
         return 1
 
 
-def cmd_run(cfg_path: str, *, source: Optional[str], dry_run: bool, disable_llm: bool, llm_timeout: Optional[float], enable_story_grouping: bool = False) -> int:
+def cmd_run(
+    cfg_path: str,
+    *,
+    source: Optional[str],
+    dry_run: bool,
+    disable_llm: bool,
+    llm_timeout: Optional[float],
+    enable_story_grouping: bool = False,
+    ignore_watermark: bool = False,
+) -> int:
     cm = ConfigManager(cfg_path)
     cm.load_config()
     storage = _build_storage(dry_run)
@@ -396,6 +425,8 @@ def cmd_run(cfg_path: str, *, source: Optional[str], dry_run: bool, disable_llm:
         os.environ["OPENAI_TIMEOUT"] = str(llm_timeout)
     if enable_story_grouping:
         os.environ["NEWS_PIPELINE_ENABLE_STORY_GROUPING"] = "1"
+    if ignore_watermark:
+        os.environ["NEWS_PIPELINE_IGNORE_WATERMARK"] = "1"
 
     # If single source requested, temporarily write a filtered config manager
     if source:
@@ -445,6 +476,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--disable-llm", action="store_true", help="Disable LLM usage; rule-based only")
     pr.add_argument("--llm-timeout", type=float, help="Override LLM timeout in seconds")
     pr.add_argument("--enable-story-grouping", action="store_true", help="Enable story grouping post-processing")
+    pr.add_argument("--ignore-watermark", action="store_true", help="Ignore source watermarks and process all fetched items")
 
     # validate
     pv = sub.add_parser("validate", help="Validate configuration and show warnings")
@@ -491,7 +523,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    cfg_path = str(Path(args.config)) if hasattr(args, "config") else "feeds.yaml"
+    cfg_path = _resolve_config_path(str(getattr(args, "config", "feeds.yaml")))
     if args.cmd in {"validate", "status", "list-sources"}:
         cm = ConfigManager(cfg_path)
         cm.load_config()
@@ -510,6 +542,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             disable_llm=bool(getattr(args, "disable_llm", False)),
             llm_timeout=getattr(args, "llm_timeout", None),
             enable_story_grouping=bool(getattr(args, "enable_story_grouping", False)),
+            ignore_watermark=bool(getattr(args, "ignore_watermark", False)),
         )
 
     if args.cmd == "group-stories":

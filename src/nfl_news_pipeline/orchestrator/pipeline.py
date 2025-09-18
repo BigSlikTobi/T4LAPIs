@@ -35,9 +35,10 @@ except Exception:  # pragma: no cover - allow environments without these deps
     StoryGroupingSettings = None  # type: ignore
 
 try:
-    from ..group_manager import GroupManager  # type: ignore
+    from ..group_manager import GroupManager, GroupStorageManager  # type: ignore
 except Exception:  # pragma: no cover
     GroupManager = None  # type: ignore
+    GroupStorageManager = None  # type: ignore
 
 try:
     from ..embedding import EmbeddingGenerator, EmbeddingErrorHandler  # type: ignore
@@ -54,6 +55,10 @@ try:
     from ..story_grouping import URLContextExtractor  # type: ignore
 except Exception:  # pragma: no cover
     URLContextExtractor = None  # type: ignore
+try:
+    from ..centroid_manager import GroupCentroidManager  # type: ignore
+except Exception:  # pragma: no cover
+    GroupCentroidManager = None  # type: ignore
 
 
 @dataclass
@@ -226,12 +231,16 @@ class NFLNewsPipeline:
         if os.environ.get("NEWS_PIPELINE_DEBUG", "").lower() in {"1", "true", "yes"}:
             print(f"[pipeline] source={feed.name} -> fetched {len(items)} items in {dt_ms}ms")
 
-        # Watermark filtering (using storage.get_watermark directly with NewsItem)
-        wm = self.storage.get_watermark(feed.name)
-        if wm is not None:
-            items = [i for i in items if (i.publication_date or now) > wm]
+        # Watermark filtering (skippable via env override)
+        ignore_wm = os.environ.get("NEWS_PIPELINE_IGNORE_WATERMARK", "").lower() in {"1", "true", "yes"}
+        wm = None
+        if not ignore_wm:
+            wm = self.storage.get_watermark(feed.name)
+            if wm is not None:
+                items = [i for i in items if (i.publication_date or now) > wm]
         if os.environ.get("NEWS_PIPELINE_DEBUG", "").lower() in {"1", "true", "yes"}:
-            print(f"[pipeline] source={feed.name} -> after watermark: {len(items)} candidates (wm={wm})")
+            suffix = " (ignored)" if ignore_wm else ""
+            print(f"[pipeline] source={feed.name} -> after watermark: {len(items)} candidates (wm={wm}{suffix})")
 
         # Filter relevance
         kept: List[ProcessedNewsItem] = []
@@ -239,7 +248,19 @@ class NFLNewsPipeline:
         if items:
             # 1) Rule-based pass for all items
             rule = RuleBasedFilter()
-            rb_results = [rule.filter(it) for it in items]
+            # If LLM is disabled (or budget is zero), slightly lower the threshold to avoid over-filtering
+            llm_disabled = os.environ.get("NEWS_PIPELINE_DISABLE_LLM", "").lower() in {"1", "true", "yes"}
+            # Interpret LLM budget from env early to decide viability; use OPENAI_TIMEOUT as fallback
+            try:
+                _budget_s_env = float(os.environ.get("NEWS_PIPELINE_LLM_BUDGET_SECONDS", os.environ.get("OPENAI_TIMEOUT", "10")))
+            except Exception:
+                _budget_s_env = 10.0
+            llm_budget_zero = _budget_s_env <= 0.0
+            # Effective LLM allowance
+            llm_allowed = (not llm_disabled) and (not llm_budget_zero)
+            # Lower threshold when LLM is not viable so keyword-only items like "NFL ..." can pass
+            rb_threshold = 0.3 if not llm_allowed else 0.4
+            rb_results = [rule.filter(it, threshold=rb_threshold) for it in items]
             if os.environ.get("NEWS_PIPELINE_DEBUG", "").lower() in {"1", "true", "yes"}:
                 pos = sum(1 for r in rb_results if r.is_relevant)
                 print(f"[pipeline] source={feed.name} -> rule positives: {pos}/{len(items)}")
@@ -251,14 +272,16 @@ class NFLNewsPipeline:
             ]
 
             llm_results: Dict[int, Any] = {}
-            if to_validate_idx:
+            # Allow disabling LLM validation via environment (for tests/CLI --disable-llm)
+            if to_validate_idx and llm_allowed:
                 # Limits: maximum items and time budget per source
                 try:
                     max_items = int(os.environ.get("NEWS_PIPELINE_LLM_MAX_ITEMS", "24"))
                 except Exception:
                     max_items = 24
                 try:
-                    budget_s = float(os.environ.get("NEWS_PIPELINE_LLM_BUDGET_SECONDS", os.environ.get("OPENAI_TIMEOUT", "10")))
+                    # Use the previously parsed env budget for consistency
+                    budget_s = _budget_s_env
                 except Exception:
                     budget_s = 10.0
                 try:
@@ -414,12 +437,24 @@ class NFLNewsPipeline:
                     self.cm = ConfigManager(self.config_path)
                 # Check configuration
                 defaults = self.cm.get_defaults() if self.cm else None
-                if defaults and defaults.enable_story_grouping:
-                    self._story_grouping_enabled = True
-                else:
-                    # Check environment variable override
-                    env_enabled = os.environ.get("NEWS_PIPELINE_ENABLE_STORY_GROUPING", "").lower()
-                    self._story_grouping_enabled = env_enabled in {"1", "true", "yes"}
+                enabled = True
+                if defaults is not None:
+                    enabled = bool(defaults.enable_story_grouping)
+
+                env_override = os.environ.get("NEWS_PIPELINE_ENABLE_STORY_GROUPING", "").strip().lower()
+                if env_override in {"1", "true", "yes"}:
+                    enabled = True
+
+                env_disable = os.environ.get("NEWS_PIPELINE_DISABLE_STORY_GROUPING", "").strip().lower()
+                if env_disable in {"1", "true", "yes"}:
+                    enabled = False
+
+                # Require a real Supabase client in order to persist context, embeddings, and groups
+                storage_client = getattr(self.storage, "client", None)
+                if enabled and storage_client is None:
+                    enabled = False
+
+                self._story_grouping_enabled = enabled
             except Exception:
                 self._story_grouping_enabled = False
         
@@ -428,6 +463,8 @@ class NFLNewsPipeline:
     def _get_story_grouping_orchestrator(self):
         """Get or create the story grouping orchestrator."""
         if self._story_grouping_orchestrator is None:
+            if not self._should_run_story_grouping():
+                return None
             try:
                 # Validate dependencies are available
                 if not all(
@@ -456,45 +493,73 @@ class NFLNewsPipeline:
                 settings.validate()
                 
                 # Create components
-                context_extractor = URLContextExtractor()
-                embedding_generator = EmbeddingGenerator()
+                context_extractor = URLContextExtractor(
+                    openai_api_key=os.getenv("OPENAI_API_KEY"),
+                    google_api_key=os.getenv("GOOGLE_API_KEY"),
+                )
+                embedding_generator = EmbeddingGenerator(openai_api_key=os.getenv("OPENAI_API_KEY"))
                 similarity_calculator = SimilarityCalculator()
                 error_handler = EmbeddingErrorHandler()
-                group_manager = GroupManager(self.storage)
+                # Group storage manager uses the underlying Supabase client
+                if GroupStorageManager is None or GroupCentroidManager is None:
+                    raise ImportError("Grouping storage or centroid manager unavailable")
+                group_storage = GroupStorageManager(self.storage.client)
+                centroid_manager = GroupCentroidManager()
+                group_manager = GroupManager(group_storage, similarity_calculator, centroid_manager)
                 
                 # Create orchestrator
+                debug = os.environ.get("NEWS_PIPELINE_DEBUG", "").lower() in {"1", "true", "yes"}
+                if debug:
+                    print("[pipeline] initializing story grouping orchestrator")
                 self._story_grouping_orchestrator = StoryGroupingOrchestrator(
                     context_extractor=context_extractor,
                     embedding_generator=embedding_generator,
                     group_manager=group_manager,
-                    similarity_calculator=similarity_calculator,
                     error_handler=error_handler,
                     settings=settings,
+                    audit_logger=self.audit,
                 )
+                if debug:
+                    print("[pipeline] story grouping orchestrator initialized")
                 
             except ImportError as e:
                 if self.audit:
                     self.audit.log_error(context="story_grouping_init", exc=e)
+                if os.environ.get("NEWS_PIPELINE_DEBUG", "").lower() in {"1", "true", "yes"}:
+                    print(f"[pipeline] story grouping init ImportError: {e}")
                 self._story_grouping_orchestrator = None
             except Exception as e:
                 if self.audit:
                     self.audit.log_error(context="story_grouping_init", exc=e)
+                if os.environ.get("NEWS_PIPELINE_DEBUG", "").lower() in {"1", "true", "yes"}:
+                    print(f"[pipeline] story grouping init error: {e}")
                 self._story_grouping_orchestrator = None
         
         return self._story_grouping_orchestrator
 
     def _run_story_grouping_for_items(self, items: List[ProcessedNewsItem], ids_by_url: Dict[str, str]) -> None:
         """Run story grouping for the provided items."""
-        orchestrator = self._get_story_grouping_orchestrator()
-        if orchestrator is None:
-            return
-            
-        # Filter to items that have IDs
+        debug = os.environ.get("NEWS_PIPELINE_DEBUG", "").lower() in {"1", "true", "yes"}
+
+        # Filter to items that have IDs before initializing heavy dependencies
         items_with_ids = [item for item in items if item.url in ids_by_url]
         if not items_with_ids:
             return
-            
-        debug = os.environ.get("NEWS_PIPELINE_DEBUG", "").lower() in {"1", "true", "yes"}
+
+        if debug:
+            try:
+                print(
+                    f"[pipeline] story grouping candidate counts: items={len(items)} ids_by_url={len(ids_by_url)} items_with_ids={len(items_with_ids)}"
+                )
+            except Exception:
+                pass
+
+        orchestrator = self._get_story_grouping_orchestrator()
+        if orchestrator is None:
+            if debug:
+                print("[pipeline] story grouping orchestrator unavailable; skipping")
+            return
+
         if debug:
             print(f"[pipeline] running story grouping for {len(items_with_ids)} items")
             
