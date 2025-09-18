@@ -20,6 +20,13 @@ from .contracts import ContractsDataLoader
 from .combine import CombineDataLoader
 from .draft import DraftDataLoader, DraftValuesDataLoader
 
+# Phase C: Reference + Advanced
+from .pfr import ProFootballReferenceDataLoader
+from .ftn import FootballStudyHallDataLoader
+from .officials import OfficialsDataLoader
+from .qbr import ESPNQBRDataLoader
+from .lines import LinesDataLoader, WinTotalsDataLoader
+
 __all__ = [
     'BaseDataLoader',
     'TeamsDataLoader',
@@ -36,4 +43,11 @@ __all__ = [
     'CombineDataLoader',
     'DraftDataLoader',
     'DraftValuesDataLoader',
+    # Phase C: Reference + Advanced
+    'ProFootballReferenceDataLoader',
+    'FootballStudyHallDataLoader',
+    'OfficialsDataLoader',
+    'ESPNQBRDataLoader',
+    'LinesDataLoader',
+    'WinTotalsDataLoader',
 ]

@@ -752,4 +752,9 @@ from .loaders.depth_charts import DepthChartsDataTransformer
 from .loaders.contracts import ContractsDataTransformer
 from .loaders.combine import CombineDataTransformer
 from .loaders.draft import DraftDataTransformer, DraftValuesDataTransformer
+from .loaders.pfr import ProFootballReferenceDataTransformer
+from .loaders.ftn import FootballStudyHallDataTransformer
+from .loaders.officials import OfficialsDataTransformer
+from .loaders.qbr import ESPNQBRDataTransformer
+from .loaders.lines import LinesDataTransformer, WinTotalsDataTransformer
 
