@@ -62,7 +62,7 @@ For full setup (DB + LLM), see Install and setup.
 - Collects NFL news URLs and metadata from RSS/sitemaps defined in `feeds.yaml` (no page scraping)
 - Filters for NFL relevance (rules + optional LLM assist) and writes to Supabase
 - Groups similar stories via embeddings + LLM URL-context to track story evolution
-- Loads core NFL datasets (teams, players, games, weekly stats)
+- Loads core NFL datasets (teams, players, games, weekly stats, injuries, rosters)
 - Generates AI content (personalized updates, trending summaries)
 - Exposes a FastAPI for user and preference management
 - Automates all the above with smart update scripts and GitHub Actions
@@ -72,7 +72,7 @@ For full setup (DB + LLM), see Install and setup.
 - NFL news pipeline with incremental watermarks and audit trail
 - Story similarity grouping (centroid-based, incremental)
 - LLM-assisted entity extraction and URL-context (configurable, cacheable)
-- Data loaders and auto-update scripts for teams, players, games, and stats
+- Data loaders and auto-update scripts for teams, players, games, stats, injuries, and rosters
 - AI content: personalized updates and trending summaries
 - FastAPI with 7 endpoints for users and preferences
 - Dockerized, tested, and documented
@@ -244,6 +244,8 @@ NFL data loaders and auto-updaters
 - scripts/players_cli.py: Load player rosters for seasons.
 - scripts/games_cli.py: Load schedules/results per season/week.
 - scripts/player_weekly_stats_cli.py: Load weekly player stats.
+- scripts/injuries_cli.py: Load injury reports with versioning support.
+- scripts/rosters_cli.py: Load seasonal rosters with versioning support.
 - scripts/games_auto_update.py: Smart weekly game updater (current and next week).
 - scripts/player_weekly_stats_auto_update.py: Smart player stats updater (gaps + recent corrections).
 
@@ -352,7 +354,7 @@ Personalized user updates
 python content_generation/personal_summary_generator.py
 ```
 
-5) NFL Data Loaders (teams/players/games/stats)
+5) NFL Data Loaders (teams/players/games/stats/injuries/rosters)
 
 ```
 # Teams
@@ -367,6 +369,14 @@ python scripts/games_cli.py 2024 --week 1 --dry-run
 
 # Player weekly stats
 python scripts/player_weekly_stats_cli.py 2024 --weeks 1 2 3 --dry-run
+
+# Injuries (with versioning)
+python scripts/injuries_cli.py 2024 --dry-run
+python scripts/injuries_cli.py 2024 --version 5 --batch-size 500
+
+# Rosters (with versioning)
+python scripts/rosters_cli.py 2024 --dry-run
+python scripts/rosters_cli.py 2024 --version 3 --batch-size 1000
 ```
 
 6) Smart Auto-Update (for CI and ops)
@@ -516,6 +526,7 @@ If you use VS Code, convenient tasks are available under .vscode/tasks.json:
 - Invalid seasons/weeks? Check CLI help; start small (one week).
 - Story grouping slow? Lower max parallelism or limit max stories per run.
 - DB schema for grouping: apply db/migrations/002_story_grouping_schema.sql in Supabase.
+- **Migration from old scripts**: The standalone `injury_updates/main.py` and `roster_updates/main.py` scripts are deprecated. Use the new standardized CLIs: `python scripts/injuries_cli.py` and `python scripts/rosters_cli.py` instead. The new CLIs use `nfl_data_py` and follow the core data pipeline patterns.
 
 More: docs/Troubleshooting.md
 

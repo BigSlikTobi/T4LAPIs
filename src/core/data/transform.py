@@ -561,8 +561,7 @@ class InjuriesDataTransformer(BaseDataTransformer):
     def _get_required_columns(self) -> List[str]:
         """Return list of required columns for injury data."""
         return [
-            'season', 'team', 'week', 'gsis_id', 'full_name', 
-            'report_status', 'date_modified'
+            'season', 'team', 'week', 'gsis_id', 'full_name'
         ]
     
     def _transform_single_record(self, row: pd.Series) -> Optional[Dict[str, Any]]:
@@ -580,15 +579,15 @@ class InjuriesDataTransformer(BaseDataTransformer):
             "season": int(row['season']) if pd.notna(row['season']) else None,
             "week": int(row['week']) if pd.notna(row['week']) else None,
             "team": str(row['team']) if pd.notna(row['team']) else None,
-            "position": str(row['position']) if pd.notna(row['position']) else None,
+            "position": str(row['position']) if pd.notna(row.get('position')) else None,
             "player_name": str(row['full_name']) if pd.notna(row['full_name']) else None,
-            "report_primary_injury": str(row['report_primary_injury']) if pd.notna(row['report_primary_injury']) else None,
-            "report_secondary_injury": str(row['report_secondary_injury']) if pd.notna(row['report_secondary_injury']) else None,
+            "report_primary_injury": str(row['report_primary_injury']) if pd.notna(row.get('report_primary_injury')) else None,
+            "report_secondary_injury": str(row['report_secondary_injury']) if pd.notna(row.get('report_secondary_injury')) else None,
             "report_status": str(row['report_status']) if pd.notna(row['report_status']) else None,
-            "practice_primary_injury": str(row['practice_primary_injury']) if pd.notna(row['practice_primary_injury']) else None,
-            "practice_secondary_injury": str(row['practice_secondary_injury']) if pd.notna(row['practice_secondary_injury']) else None,
-            "practice_status": str(row['practice_status']) if pd.notna(row['practice_status']) else None,
-            "game_type": str(row['game_type']) if pd.notna(row['game_type']) else None,
+            "practice_primary_injury": str(row['practice_primary_injury']) if pd.notna(row.get('practice_primary_injury')) else None,
+            "practice_secondary_injury": str(row['practice_secondary_injury']) if pd.notna(row.get('practice_secondary_injury')) else None,
+            "practice_status": str(row['practice_status']) if pd.notna(row.get('practice_status')) else None,
+            "game_type": str(row['game_type']) if pd.notna(row.get('game_type')) else None,
             "date_modified": date_modified,
             "version": int(row['version']) if pd.notna(row.get('version')) else None
         }
@@ -652,7 +651,7 @@ class RostersDataTransformer(BaseDataTransformer):
     def _get_required_columns(self) -> List[str]:
         """Return list of required columns for roster data."""
         return [
-            'season', 'team', 'position', 'player_name', 'player_id'
+            'season', 'team', 'player_name', 'player_id'
         ]
     
     def _transform_single_record(self, row: pd.Series) -> Optional[Dict[str, Any]]:
@@ -716,31 +715,31 @@ class RostersDataTransformer(BaseDataTransformer):
         
         roster_record = {
             "slug": slug,
-            "season": int(row['season']) if pd.notna(row['season']) else None,
+            "season": int(row['season']) if pd.notna(row.get('season')) else None,
             "team": team_abbr,
             "position": position,
-            "depth_chart_position": str(row['depth_chart_position']) if pd.notna(row['depth_chart_position']) else None,
+            "depth_chart_position": str(row['depth_chart_position']) if pd.notna(row.get('depth_chart_position')) else None,
             "jersey_number": jersey_number_val,
-            "status": str(row['status']) if pd.notna(row['status']) else None,
+            "status": str(row['status']) if pd.notna(row.get('status')) else None,
             "player_name": player_name,
-            "first_name": str(row['first_name']) if pd.notna(row['first_name']) else None,
-            "last_name": str(row['last_name']) if pd.notna(row['last_name']) else None,
+            "first_name": str(row['first_name']) if pd.notna(row.get('first_name')) else None,
+            "last_name": str(row['last_name']) if pd.notna(row.get('last_name')) else None,
             "birth_date": birth_date,
             "height": height_val,
             "weight": weight_val,
-            "college": str(row['college']) if pd.notna(row['college']) else None,
-            "player_id": str(row['player_id']) if pd.notna(row['player_id']) else None,
+            "college": str(row['college']) if pd.notna(row.get('college')) else None,
+            "player_id": str(row['player_id']) if pd.notna(row.get('player_id')) else None,
             "years_exp": years_exp_val,
-            "headshot_url": str(row['headshot_url']) if pd.notna(row['headshot_url']) else None,
-            "ngs_position": str(row['ngs_position']) if pd.notna(row['ngs_position']) else None,
-            "week": int(row['week']) if pd.notna(row['week']) else None,
-            "game_type": str(row['game_type']) if pd.notna(row['game_type']) else None,
-            "status_description_abbr": str(row['status_description_abbr']) if pd.notna(row['status_description_abbr']) else None,
-            "football_name": str(row['football_name']) if pd.notna(row['football_name']) else None,
-            "entry_year": int(row['entry_year']) if pd.notna(row['entry_year']) else None,
-            "rookie_year": int(row['rookie_year']) if pd.notna(row['rookie_year']) else None,
-            "draft_club": str(row['draft_club']) if pd.notna(row['draft_club']) else None,
-            "draft_number": int(row['draft_number']) if pd.notna(row['draft_number']) else None,
+            "headshot_url": str(row['headshot_url']) if pd.notna(row.get('headshot_url')) else None,
+            "ngs_position": str(row['ngs_position']) if pd.notna(row.get('ngs_position')) else None,
+            "week": int(row['week']) if pd.notna(row.get('week')) else None,
+            "game_type": str(row['game_type']) if pd.notna(row.get('game_type')) else None,
+            "status_description_abbr": str(row['status_description_abbr']) if pd.notna(row.get('status_description_abbr')) else None,
+            "football_name": str(row['football_name']) if pd.notna(row.get('football_name')) else None,
+            "entry_year": int(row['entry_year']) if pd.notna(row.get('entry_year')) else None,
+            "rookie_year": int(row['rookie_year']) if pd.notna(row.get('rookie_year')) else None,
+            "draft_club": str(row['draft_club']) if pd.notna(row.get('draft_club')) else None,
+            "draft_number": int(row['draft_number']) if pd.notna(row.get('draft_number')) else None,
             "age": age_val,
             "version": int(row['version']) if pd.notna(row.get('version')) else None
         }
