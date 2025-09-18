@@ -53,9 +53,10 @@ def _initialize_gemini(model_type: str = "default", grounding_enabled: bool = Tr
         raise ValueError("Unsupported Gemini model type. Choose 'default', 'lite', or 'flash'.")
 
     logger.info(f"Initializing Gemini model: {selected_model} with Google Search Grounding: {grounding_enabled}")
-    google_api_key = api_key or os.getenv("GEMINI_API_KEY")
+    # Support both GEMINI_API_KEY (preferred) and GOOGLE_API_KEY (legacy/alias)
+    google_api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not google_api_key:
-        raise ValueError("GEMINI_API_KEY environment variable not set.")
+        raise ValueError("GEMINI_API_KEY environment variable not set (GOOGLE_API_KEY is also accepted as an alias).")
 
     # Configure the Gemini client
     genai.configure(api_key=google_api_key)
