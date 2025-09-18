@@ -260,7 +260,9 @@ class NFLNewsPipeline:
             ]
 
             llm_results: Dict[int, Any] = {}
-            if to_validate_idx:
+            # Allow disabling LLM validation via environment (for tests/CLI --disable-llm)
+            llm_disabled = os.environ.get("NEWS_PIPELINE_DISABLE_LLM", "").lower() in {"1", "true", "yes"}
+            if to_validate_idx and not llm_disabled:
                 # Limits: maximum items and time budget per source
                 try:
                     max_items = int(os.environ.get("NEWS_PIPELINE_LLM_MAX_ITEMS", "24"))

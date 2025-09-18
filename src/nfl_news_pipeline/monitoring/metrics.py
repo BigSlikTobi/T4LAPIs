@@ -104,6 +104,15 @@ class QualityMetrics:
     stories_grouped_within_24hr: int = 0
     avg_time_to_group_minutes: float = 0.0
 
+    def __setattr__(self, name, value):
+        # Normalize floating point artifacts (e.g., 0.8500000000000001 -> 0.85)
+        if name == "avg_similarity_score":
+            try:
+                value = round(float(value), 12)
+            except Exception:
+                pass
+        super().__setattr__(name, value)
+
 
 @dataclass
 class GroupingDecision:
