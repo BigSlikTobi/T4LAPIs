@@ -4,7 +4,8 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import os
-from typing import Any, Dict, List, Optional, Tuple
+import logging
+from typing import Any, Dict, List, Optional, Tuple, Protocol
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 
 from ..config import ConfigManager
@@ -59,6 +60,85 @@ try:
     from ..centroid_manager import GroupCentroidManager  # type: ignore
 except Exception:  # pragma: no cover
     GroupCentroidManager = None  # type: ignore
+
+
+logger = logging.getLogger(__name__)
+
+
+class StoryGroupingStorageProtocol(Protocol):
+    """Protocol defining the storage interface required for story grouping.
+    
+    This protocol documents the minimum interface needed for a storage
+    implementation to support story grouping functionality. Storage 
+    implementations that provide these methods can enable story grouping
+    regardless of whether they have a .client attribute.
+    """
+    
+    # Note: We check for these methods indirectly via the components that need them
+    # The actual interface is through GroupStorageManager and EmbeddingStorageManager
+    # which require a Supabase-compatible client, but this protocol documents
+    # the conceptual interface for future extension.
+    
+    def check_duplicate_urls(self, urls) -> Dict[str, Any]:
+        """Check for duplicate URLs (base storage requirement)."""
+        ...
+        
+    def store_news_items(self, items) -> Any:
+        """Store news items (base storage requirement)."""
+        ...
+
+
+def _has_story_grouping_capabilities(storage: Any) -> Tuple[bool, List[str]]:
+    """Check if storage has the required capabilities for story grouping.
+    
+    Args:
+        storage: Storage instance to check
+        
+    Returns:
+        Tuple of (has_capabilities, missing_capabilities)
+        
+    Note:
+        Checks for either:
+        1. A Supabase client (traditional approach), OR
+        2. Alternative storage methods for story grouping functionality
+    """
+    missing_capabilities = []
+    
+    # Primary check: Does it have a Supabase client?
+    # This is what GroupStorageManager currently requires
+    has_client = hasattr(storage, 'client') and getattr(storage, 'client', None) is not None
+    
+    # Alternative check: Does it have story grouping methods?
+    # This enables non-Supabase storage implementations
+    has_persist_methods = (
+        hasattr(storage, 'persist_group') and
+        hasattr(storage, 'persist_context') and 
+        hasattr(storage, 'persist_embedding')
+    )
+    
+    # Storage is capable if it has either approach
+    if has_client:
+        # Traditional Supabase storage - fully supported
+        pass
+    elif has_persist_methods:
+        # Alternative storage with story grouping methods - supported
+        pass
+    else:
+        # Neither approach available
+        if not hasattr(storage, 'client'):
+            missing_capabilities.append('client attribute (Supabase-style storage)')
+        elif getattr(storage, 'client', None) is None:
+            missing_capabilities.append('initialized client instance')
+        
+        if not hasattr(storage, 'persist_group'):
+            missing_capabilities.append('persist_group method')
+        if not hasattr(storage, 'persist_context'):
+            missing_capabilities.append('persist_context method')
+        if not hasattr(storage, 'persist_embedding'):
+            missing_capabilities.append('persist_embedding method')
+    
+    has_capabilities = has_client or has_persist_methods
+    return has_capabilities, missing_capabilities
 
 
 @dataclass
@@ -449,10 +529,16 @@ class NFLNewsPipeline:
                 if env_disable in {"1", "true", "yes"}:
                     enabled = False
 
-                # Require a real Supabase client in order to persist context, embeddings, and groups
-                storage_client = getattr(self.storage, "client", None)
-                if enabled and storage_client is None:
-                    enabled = False
+                # Check if storage has the capabilities needed for story grouping
+                if enabled:
+                    has_capabilities, missing_capabilities = _has_story_grouping_capabilities(self.storage)
+                    if not has_capabilities:
+                        enabled = False
+                        if missing_capabilities:
+                            logger.warning(
+                                "Story grouping disabled: storage missing required capabilities: %s",
+                                ", ".join(missing_capabilities)
+                            )
 
                 self._story_grouping_enabled = enabled
             except Exception:
