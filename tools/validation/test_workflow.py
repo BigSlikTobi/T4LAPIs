@@ -10,10 +10,14 @@ import os
 import sys
 import logging
 from datetime import datetime, timezone
+from dotenv import load_dotenv
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
+
+# Load environment variables from a local .env if present to mimic GitHub Actions env injection
+load_dotenv(os.path.join(project_root, ".env"), override=False)
 
 def setup_logging():
     """Set up logging for the test."""
@@ -25,26 +29,49 @@ def setup_logging():
 def test_environment_variables():
     """Test that required environment variables are set."""
     print("🔍 Testing environment variables...")
-    
-    required_vars = [
-        'SUPABASE_URL',
-        'SUPABASE_KEY',
-        'GEMINI_API_KEY',
-        'DEEPSEEK_API_KEY'
-    ]
-    
+
+    # Required for database access
+    base_required = ['SUPABASE_URL', 'SUPABASE_KEY']
+
+    # Gemini key can be provided as GEMINI_API_KEY (preferred) or GOOGLE_API_KEY (alias)
+    gemini_keys = ['GEMINI_API_KEY', 'GOOGLE_API_KEY']
+
+    # DeepSeek is used as fallback provider
+    deepseek_required = ['DEEPSEEK_API_KEY']
+
     missing_vars = []
-    for var in required_vars:
+
+    # Check base required
+    for var in base_required:
         if not os.getenv(var):
             missing_vars.append(var)
-    
+
+    # Check Gemini/Goggle AI key presence
+    if not any(os.getenv(k) for k in gemini_keys):
+        missing_vars.append('GEMINI_API_KEY (or GOOGLE_API_KEY)')
+
+    # Check DeepSeek
+    for var in deepseek_required:
+        if not os.getenv(var):
+            missing_vars.append(var)
+
     if missing_vars:
         print(f"❌ Missing environment variables: {', '.join(missing_vars)}")
-        print("   Set these variables before running the workflow:")
-        for var in missing_vars:
-            print(f"   export {var}=your_{var.lower()}_here")
+        print("   Set these variables before running the workflow (you can place them in a .env at repo root):")
+        # Provide concrete export hints
+        if 'SUPABASE_URL' in missing_vars:
+            print("   export SUPABASE_URL=your_supabase_url_here")
+        if 'SUPABASE_KEY' in missing_vars:
+            print("   export SUPABASE_KEY=your_supabase_key_here")
+        if any('GEMINI_API_KEY' in mv for mv in missing_vars):
+            print("   # Prefer GEMINI_API_KEY; GOOGLE_API_KEY is accepted as an alias")
+            print("   export GEMINI_API_KEY=your_gemini_api_key_here")
+            print("   # or")
+            print("   export GOOGLE_API_KEY=your_google_api_key_here")
+        if 'DEEPSEEK_API_KEY' in missing_vars:
+            print("   export DEEPSEEK_API_KEY=your_deepseek_api_key_here")
         return False
-    
+
     print("✅ All required environment variables are set")
     return True
 

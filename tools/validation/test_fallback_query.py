@@ -6,10 +6,13 @@ This script tests that the fallback query properly filters out articles that alr
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'src'))
+_here = os.path.dirname(os.path.abspath(__file__))
+# Add project src and root to path for imports
+sys.path.insert(0, os.path.join(_here, '..', '..', 'src'))
+sys.path.insert(0, os.path.join(_here, '..', '..'))
 
 from scripts.llm_entity_linker import LLMEntityLinker
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 
 def test_fallback_query_logic():
     """Test the fallback query logic to ensure it filters out linked articles."""
@@ -40,53 +43,31 @@ def test_fallback_query_logic():
         {'article_id': 4},
     ]
     
-    # Configure mocks for the manual filtering fallback
-    def mock_supabase_responses(*args, **kwargs):
-        """Mock supabase responses for different scenarios."""
-        response_mock = Mock()
-        
-        if hasattr(args[0], 'rpc'):
-            # RPC call - should fail
-            response_mock.error = "RPC not available"
-            response_mock.data = None
-            return response_mock
-        
-        if 'from_' in str(args) or 'is_' in str(kwargs):
-            # LEFT JOIN query - should fail
-            response_mock.error = "LEFT JOIN failed"
-            response_mock.data = None
-            return response_mock
-        
-        # Manual fallback queries
-        if 'article_entity_links' in str(args):
-            # Links query
-            response_mock.error = None
-            response_mock.data = mock_links
-            return response_mock
-        else:
-            # Articles query
-            response_mock.error = None
-            response_mock.data = mock_articles
-            return response_mock
-    
-    # Setup the mock chain
+    # Simple stub query objects to mimic the chained supabase client methods
+    class _StubQuery:
+        def __init__(self, data):
+            self._data = data
+        def select(self, *_, **__):
+            return self
+        def filter(self, *_, **__):
+            return self
+        def in_(self, *_, **__):
+            return self
+        def range(self, *_, **__):
+            return self
+        def limit(self, *_, **__):
+            return self
+        def execute(self):
+            resp = Mock()
+            resp.error = None
+            resp.data = self._data
+            return resp
+
+    # Setup the mock chain to force manual fallback path
     linker.articles_db.supabase.rpc = Mock(side_effect=Exception("RPC not available"))
     linker.articles_db.supabase.from_ = Mock(side_effect=Exception("LEFT JOIN failed"))
-    linker.articles_db.supabase.table = Mock(return_value=Mock(
-        select=Mock(return_value=Mock(
-            filter=Mock(return_value=Mock(
-                limit=Mock(return_value=Mock(
-                    execute=lambda: mock_supabase_responses('SourceArticles')
-                ))
-            ))
-        ))
-    ))
-    
-    linker.links_db.supabase.table = Mock(return_value=Mock(
-        select=Mock(return_value=Mock(
-            execute=lambda: mock_supabase_responses('article_entity_links')
-        ))
-    ))
+    linker.articles_db.supabase.table = Mock(side_effect=lambda name: _StubQuery(mock_articles) if name == "SourceArticles" else _StubQuery([]))
+    linker.links_db.supabase.table = Mock(side_effect=lambda name: _StubQuery(mock_links) if name == "article_entity_links" else _StubQuery([]))
     
     # Call the method
     try:

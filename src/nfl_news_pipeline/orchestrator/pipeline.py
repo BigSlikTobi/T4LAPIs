@@ -449,10 +449,17 @@ class NFLNewsPipeline:
                 if env_disable in {"1", "true", "yes"}:
                     enabled = False
 
-                # Require a real Supabase client in order to persist context, embeddings, and groups
-                storage_client = getattr(self.storage, "client", None)
-                if enabled and storage_client is None:
-                    enabled = False
+                # Check if storage supports story grouping capabilities
+                if enabled:
+                    from ..storage.protocols import has_story_grouping_capability
+                    if not has_story_grouping_capability(self.storage):
+                        enabled = False
+                        if self.audit:
+                            self.audit.log_event(
+                                "story_grouping_disabled",
+                                message="Story grouping disabled: storage lacks required capabilities",
+                                data={"storage_type": type(self.storage).__name__}
+                            )
 
                 self._story_grouping_enabled = enabled
             except Exception:
@@ -500,10 +507,12 @@ class NFLNewsPipeline:
                 embedding_generator = EmbeddingGenerator(openai_api_key=os.getenv("OPENAI_API_KEY"))
                 similarity_calculator = SimilarityCalculator()
                 error_handler = EmbeddingErrorHandler()
-                # Group storage manager uses the underlying Supabase client
+                # Group storage manager uses the storage's grouping client
                 if GroupStorageManager is None or GroupCentroidManager is None:
                     raise ImportError("Grouping storage or centroid manager unavailable")
-                group_storage = GroupStorageManager(self.storage.client)
+                from ..storage.protocols import get_grouping_client
+                grouping_client = get_grouping_client(self.storage)
+                group_storage = GroupStorageManager(grouping_client)
                 centroid_manager = GroupCentroidManager()
                 group_manager = GroupManager(group_storage, similarity_calculator, centroid_manager)
                 

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from ..models import ProcessedNewsItem
+from .protocols import StoryGroupingCapable
 
 
 @dataclass
@@ -16,7 +17,7 @@ class StorageResult:
     ids_by_url: Dict[str, str]
 
 
-class StorageManager:
+class StorageManager(StoryGroupingCapable):
     """Storage layer for Supabase with URL dedup and watermarks.
 
     Notes:
@@ -43,6 +44,14 @@ class StorageManager:
         self.keep_ambiguous_players = os.getenv("KEEP_AMBIGUOUS_PLAYERS", "0").lower() in {"1", "true", "yes"}
         # Back-compat flag: also write JSONB entities column (default off per normalization)
         self.write_entities_jsonb = os.getenv("WRITE_ENTITIES_JSONB", "0").lower() not in {"0", "false", "no"}
+
+    def get_grouping_client(self) -> Any:
+        """Get the Supabase client for story grouping operations.
+        
+        Returns:
+            The Supabase client instance
+        """
+        return self.client
 
     # ------------- Dedup helpers -------------
     def check_duplicate_urls(self, urls: Iterable[str]) -> Dict[str, Dict[str, Any]]:
