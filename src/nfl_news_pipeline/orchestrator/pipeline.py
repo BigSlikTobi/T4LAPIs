@@ -248,7 +248,10 @@ class NFLNewsPipeline:
         if items:
             # 1) Rule-based pass for all items
             rule = RuleBasedFilter()
-            rb_results = [rule.filter(it) for it in items]
+            # If LLM is disabled via env, slightly lower the threshold to avoid over-filtering
+            llm_disabled = os.environ.get("NEWS_PIPELINE_DISABLE_LLM", "").lower() in {"1", "true", "yes"}
+            rb_threshold = 0.3 if llm_disabled else 0.4
+            rb_results = [rule.filter(it, threshold=rb_threshold) for it in items]
             if os.environ.get("NEWS_PIPELINE_DEBUG", "").lower() in {"1", "true", "yes"}:
                 pos = sum(1 for r in rb_results if r.is_relevant)
                 print(f"[pipeline] source={feed.name} -> rule positives: {pos}/{len(items)}")
@@ -261,7 +264,6 @@ class NFLNewsPipeline:
 
             llm_results: Dict[int, Any] = {}
             # Allow disabling LLM validation via environment (for tests/CLI --disable-llm)
-            llm_disabled = os.environ.get("NEWS_PIPELINE_DISABLE_LLM", "").lower() in {"1", "true", "yes"}
             if to_validate_idx and not llm_disabled:
                 # Limits: maximum items and time budget per source
                 try:
