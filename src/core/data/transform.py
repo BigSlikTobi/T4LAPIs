@@ -743,3 +743,217 @@ class PlayerWeeklyStatsDataTransformer(BaseDataTransformer):
             self.logger.error(f"Error generating game_id: {e}")
             return None
 
+
+class InjuryDataTransformer(BaseDataTransformer):
+    """
+    Handles transformation, validation, and sanitization of NFL injury data.
+    
+    Transforms raw injury data from nfl_data_py into the format expected
+    by our injuries database table.
+    """
+    
+    def _get_required_columns(self) -> List[str]:
+        """Return list of required columns for injury data."""
+        return [
+            'season', 'team', 'week', 'gsis_id', 'position', 'full_name',
+            'report_status', 'date_modified'
+        ]
+    
+    def _transform_single_record(self, row: pd.Series) -> Optional[Dict[str, Any]]:
+        """Transform a single injury row into a database record."""
+        try:
+            # Handle date conversion
+            date_modified = None
+            if pd.notna(row.get('date_modified')):
+                try:
+                    date_modified = pd.to_datetime(row['date_modified']).isoformat()
+                except:
+                    date_modified = None
+            
+            injury_record = {
+                "season": int(row['season']) if pd.notna(row['season']) else None,
+                "game_type": str(row.get('game_type', 'REG')) if pd.notna(row.get('game_type')) else 'REG',
+                "team": normalize_team_abbr(str(row['team'])) if pd.notna(row['team']) else None,
+                "week": int(row['week']) if pd.notna(row['week']) else None,
+                "gsis_id": str(row['gsis_id']) if pd.notna(row['gsis_id']) else None,
+                "position": str(row['position']) if pd.notna(row['position']) else None,
+                "full_name": str(row['full_name']) if pd.notna(row['full_name']) else None,
+                "first_name": str(row.get('first_name', '')) if pd.notna(row.get('first_name')) else None,
+                "last_name": str(row.get('last_name', '')) if pd.notna(row.get('last_name')) else None,
+                "report_primary_injury": str(row.get('report_primary_injury', '')) if pd.notna(row.get('report_primary_injury')) else None,
+                "report_secondary_injury": str(row.get('report_secondary_injury', '')) if pd.notna(row.get('report_secondary_injury')) else None,
+                "report_status": str(row['report_status']) if pd.notna(row['report_status']) else None,
+                "practice_primary_injury": str(row.get('practice_primary_injury', '')) if pd.notna(row.get('practice_primary_injury')) else None,
+                "practice_secondary_injury": str(row.get('practice_secondary_injury', '')) if pd.notna(row.get('practice_secondary_injury')) else None,
+                "practice_status": str(row.get('practice_status', '')) if pd.notna(row.get('practice_status')) else None,
+                "date_modified": date_modified
+            }
+            
+            # Skip if critical data is missing
+            if not injury_record['gsis_id'] or not injury_record['season'] or not injury_record['week']:
+                self.logger.warning(f"Skipping injury with missing critical data: {row.to_dict()}")
+                return None
+                
+            return injury_record
+            
+        except Exception as e:
+            self.logger.error(f"Error transforming injury record: {e}")
+            return None
+    
+    def _validate_record(self, injury_record: Dict[str, Any]) -> bool:
+        """Validate a single injury record for completeness and correctness."""
+        try:
+            # Required fields
+            required_fields = ['gsis_id', 'season', 'week', 'team', 'full_name']
+            
+            # Check critical required fields are present and non-empty
+            for field in required_fields:
+                if field not in injury_record or not injury_record[field]:
+                    self.logger.warning(f"Injury record missing or empty required field '{field}': {injury_record}")
+                    return False
+            
+            # Validate season range
+            if injury_record.get('season') and not (1920 <= injury_record['season'] <= 2030):
+                self.logger.warning(f"Invalid season: {injury_record['season']}")
+                return False
+                
+            # Validate week range
+            if injury_record.get('week') and not (1 <= injury_record['week'] <= 22):  # Including playoffs
+                self.logger.warning(f"Invalid week: {injury_record['week']}")
+                return False
+            
+            # Validate team abbreviation
+            team_abbr = injury_record.get('team')
+            if team_abbr and not (2 <= len(team_abbr) <= 3):
+                self.logger.warning(f"Invalid team abbreviation length: {team_abbr}")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error validating injury record: {e}")
+            return False
+
+
+class RosterDataTransformer(BaseDataTransformer):
+    """
+    Handles transformation, validation, and sanitization of NFL roster data.
+    
+    Transforms raw roster data from nfl_data_py into the format expected
+    by our rosters database table.
+    """
+    
+    def _get_required_columns(self) -> List[str]:
+        """Return list of required columns for roster data."""
+        return [
+            'season', 'team', 'player_id', 'player_name', 'position'
+        ]
+    
+    def _transform_single_record(self, row: pd.Series) -> Optional[Dict[str, Any]]:
+        """Transform a single roster row into a database record."""
+        try:
+            # Handle date conversion
+            birth_date = None
+            if pd.notna(row.get('birth_date')):
+                try:
+                    birth_date = pd.to_datetime(row['birth_date']).date().isoformat()
+                except:
+                    birth_date = None
+            
+            roster_record = {
+                "season": int(row['season']) if pd.notna(row['season']) else None,
+                "team": normalize_team_abbr(str(row['team'])) if pd.notna(row['team']) else None,
+                "position": str(row['position']) if pd.notna(row['position']) else None,
+                "depth_chart_position": str(row.get('depth_chart_position', '')) if pd.notna(row.get('depth_chart_position')) else None,
+                "jersey_number": int(row['jersey_number']) if pd.notna(row['jersey_number']) else None,
+                "status": str(row.get('status', '')) if pd.notna(row.get('status')) else None,
+                "player_name": str(row['player_name']) if pd.notna(row['player_name']) else None,
+                "first_name": str(row.get('first_name', '')) if pd.notna(row.get('first_name')) else None,
+                "last_name": str(row.get('last_name', '')) if pd.notna(row.get('last_name')) else None,
+                "birth_date": birth_date,
+                "height": int(row['height']) if pd.notna(row['height']) else None,
+                "weight": int(row['weight']) if pd.notna(row['weight']) else None,
+                "college": str(row.get('college', '')) if pd.notna(row.get('college')) else None,
+                "player_id": str(row['player_id']) if pd.notna(row['player_id']) else None,
+                "espn_id": str(row.get('espn_id', '')) if pd.notna(row.get('espn_id')) else None,
+                "sportradar_id": str(row.get('sportradar_id', '')) if pd.notna(row.get('sportradar_id')) else None,
+                "yahoo_id": str(row.get('yahoo_id', '')) if pd.notna(row.get('yahoo_id')) else None,
+                "rotowire_id": str(row.get('rotowire_id', '')) if pd.notna(row.get('rotowire_id')) else None,
+                "pff_id": str(row.get('pff_id', '')) if pd.notna(row.get('pff_id')) else None,
+                "pfr_id": str(row.get('pfr_id', '')) if pd.notna(row.get('pfr_id')) else None,
+                "fantasy_data_id": str(row.get('fantasy_data_id', '')) if pd.notna(row.get('fantasy_data_id')) else None,
+                "sleeper_id": str(row.get('sleeper_id', '')) if pd.notna(row.get('sleeper_id')) else None,
+                "years_exp": int(row['years_exp']) if pd.notna(row['years_exp']) else None,
+                "headshot_url": str(row.get('headshot_url', '')) if pd.notna(row.get('headshot_url')) else None,
+                "ngs_position": str(row.get('ngs_position', '')) if pd.notna(row.get('ngs_position')) else None,
+                "week": int(row.get('week', 1)) if pd.notna(row.get('week')) else 1,
+                "game_type": str(row.get('game_type', 'REG')) if pd.notna(row.get('game_type')) else 'REG',
+                "status_description_abbr": str(row.get('status_description_abbr', '')) if pd.notna(row.get('status_description_abbr')) else None,
+                "football_name": str(row.get('football_name', '')) if pd.notna(row.get('football_name')) else None,
+                "esb_id": str(row.get('esb_id', '')) if pd.notna(row.get('esb_id')) else None,
+                "gsis_it_id": str(row.get('gsis_it_id', '')) if pd.notna(row.get('gsis_it_id')) else None,
+                "smart_id": str(row.get('smart_id', '')) if pd.notna(row.get('smart_id')) else None,
+                "entry_year": int(row['entry_year']) if pd.notna(row['entry_year']) else None,
+                "rookie_year": int(row['rookie_year']) if pd.notna(row['rookie_year']) else None,
+                "draft_club": str(row.get('draft_club', '')) if pd.notna(row.get('draft_club')) else None,
+                "draft_number": int(row['draft_number']) if pd.notna(row['draft_number']) else None,
+                "age": int(row['age']) if pd.notna(row['age']) else None
+            }
+            
+            # Skip if critical data is missing
+            if not roster_record['player_id'] or not roster_record['season'] or not roster_record['team']:
+                self.logger.warning(f"Skipping roster with missing critical data: {row.to_dict()}")
+                return None
+                
+            return roster_record
+            
+        except Exception as e:
+            self.logger.error(f"Error transforming roster record: {e}")
+            return None
+    
+    def _validate_record(self, roster_record: Dict[str, Any]) -> bool:
+        """Validate a single roster record for completeness and correctness."""
+        try:
+            # Required fields
+            required_fields = ['player_id', 'season', 'team', 'player_name']
+            
+            # Check critical required fields are present and non-empty
+            for field in required_fields:
+                if field not in roster_record or not roster_record[field]:
+                    self.logger.warning(f"Roster record missing or empty required field '{field}': {roster_record}")
+                    return False
+            
+            # Validate season range
+            if roster_record.get('season') and not (1920 <= roster_record['season'] <= 2030):
+                self.logger.warning(f"Invalid season: {roster_record['season']}")
+                return False
+            
+            # Validate team abbreviation
+            team_abbr = roster_record.get('team')
+            if team_abbr and not (2 <= len(team_abbr) <= 3):
+                self.logger.warning(f"Invalid team abbreviation length: {team_abbr}")
+                return False
+            
+            # Validate jersey number if present
+            jersey_number = roster_record.get('jersey_number')
+            if jersey_number is not None and not (0 <= jersey_number <= 99):
+                self.logger.warning(f"Invalid jersey number: {jersey_number}")
+                return False
+            
+            # Validate height/weight if present
+            height = roster_record.get('height')
+            if height is not None and not (60 <= height <= 90):  # inches, reasonable range
+                self.logger.warning(f"Invalid height: {height}")
+                return False
+            
+            weight = roster_record.get('weight')
+            if weight is not None and not (150 <= weight <= 400):  # pounds, reasonable range
+                self.logger.warning(f"Invalid weight: {weight}")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error validating roster record: {e}")
+            return False
+

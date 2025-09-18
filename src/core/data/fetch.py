@@ -195,6 +195,29 @@ def fetch_injury_data(years: List[int]) -> pd.DataFrame:
         raise
 
 
+def fetch_roster_data(years: List[int]) -> pd.DataFrame:
+    """
+    Fetch roster data specifically for the rosters table.
+    
+    Args:
+        years: List of years to fetch roster data for
+        
+    Returns:
+        pd.DataFrame: Raw roster data from nfl_data_py
+        
+    Raises:
+        Exception: If data fetching fails
+    """
+    try:
+        logger.info(f"Fetching roster data for years: {years}")
+        roster_df = nfl.import_seasonal_rosters(years)
+        logger.info(f"Successfully fetched {len(roster_df)} roster records for {len(years)} years")
+        return roster_df
+    except Exception as e:
+        logger.error(f"Failed to fetch roster data for years {years}: {e}")
+        raise
+
+
 def fetch_combine_data(years: Optional[List[int]] = None) -> pd.DataFrame:
     """
     Fetch NFL Combine data.
