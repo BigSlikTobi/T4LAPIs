@@ -743,3 +743,13 @@ class PlayerWeeklyStatsDataTransformer(BaseDataTransformer):
             self.logger.error(f"Error generating game_id: {e}")
             return None
 
+
+# Import new transformers from loaders modules
+from .loaders.pbp import PlayByPlayDataTransformer
+from .loaders.ngs import NextGenStatsDataTransformer  
+from .loaders.snap_counts import SnapCountsDataTransformer
+from .loaders.depth_charts import DepthChartsDataTransformer
+from .loaders.contracts import ContractsDataTransformer
+from .loaders.combine import CombineDataTransformer
+from .loaders.draft import DraftDataTransformer, DraftValuesDataTransformer
+
