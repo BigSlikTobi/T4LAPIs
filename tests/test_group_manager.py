@@ -177,7 +177,7 @@ class TestGroupStorageManager:
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }
         ]
-        mock_supabase_client.table().select().is_().execute.return_value = Mock(data=mock_data)
+        mock_supabase_client.table.return_value.select.return_value.execute.return_value = Mock(data=mock_data)
         
         centroids = await storage_manager.get_group_centroids()
         

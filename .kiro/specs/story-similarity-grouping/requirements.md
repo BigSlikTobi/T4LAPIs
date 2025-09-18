@@ -1,5 +1,10 @@
 # Requirements Document
+Deprecated: This document has moved.
 
+Please see the canonical version here:
+- docs/specs/story-similarity-grouping/requirements.md
+
+Rationale: All specs were consolidated under docs/specs/ to avoid duplication.
 ## Introduction
 
 The Story Similarity Grouping feature extends the existing NFL News Processing Pipeline by implementing intelligent story clustering based on semantic similarity. The system will analyze news stories using embeddings generated from URL context summaries, group similar stories together, and maintain these groupings as new stories are ingested. This enables identification of duplicate coverage, trending story tracking, and comprehensive story evolution analysis.

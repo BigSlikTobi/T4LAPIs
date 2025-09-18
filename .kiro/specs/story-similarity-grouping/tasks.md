@@ -1,5 +1,10 @@
 # Implementation Plan
+Deprecated: This document has moved.
 
+Please see the canonical version here:
+- docs/specs/story-similarity-grouping/tasks.md
+
+Rationale: All specs were consolidated under docs/specs/ to avoid duplication.
 -
   1. [x] Set up database schema extensions for story grouping
   - Create database migration file with new tables for embeddings, groups, and

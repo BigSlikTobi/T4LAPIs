@@ -8,10 +8,12 @@ import os
 import sys
 import tempfile
 import yaml
+import importlib
+import importlib.util
 from pathlib import Path
 
 # Add project root to path
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 def test_config_integration():
@@ -86,8 +88,22 @@ def test_config_integration():
         # Test 1: Load configuration using our manager
         print("🔧 Testing configuration loading...")
         try:
-            from nfl_news_pipeline.story_grouping_config import StoryGroupingConfigManager
-            
+            # Dynamic import to avoid static analysis path issues
+            module_name = "nfl_news_pipeline.story_grouping_config"
+            try:
+                sg_module = importlib.import_module(module_name)
+            except ModuleNotFoundError:
+                # Fallback: load from explicit file path under src/
+                candidate = PROJECT_ROOT / "src" / "nfl_news_pipeline" / "story_grouping_config.py"
+                if not candidate.exists():
+                    raise
+                spec = importlib.util.spec_from_file_location(module_name, candidate)
+                sg_module = importlib.util.module_from_spec(spec)
+                assert spec and spec.loader
+                spec.loader.exec_module(sg_module)  # type: ignore
+
+            StoryGroupingConfigManager = getattr(sg_module, "StoryGroupingConfigManager")
+
             manager = StoryGroupingConfigManager(test_config_path)
             config = manager.load_config()
             

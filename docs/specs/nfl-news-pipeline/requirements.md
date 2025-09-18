@@ -1,10 +1,5 @@
 # Requirements Document
-Deprecated: This document has moved.
 
-Please see the canonical version here:
-- docs/specs/nfl-news-pipeline/requirements.md
-
-Rationale: All specs were consolidated under docs/specs/ to avoid duplication.
 ## Introduction
 
 The NFL News Processing Pipeline is a comprehensive data ingestion system that automatically collects, filters, and stores NFL-related news URLs and metadata from multiple public sources. The system leverages RSS feeds and sitemaps defined in feeds.yaml to gather news URLs and available metadata only, applies intelligent filtering using both rule-based and LLM-assisted relevance checks, and maintains clean, deduplicated data in Supabase with incremental ingestion capabilities.

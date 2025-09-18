@@ -1,5 +1,10 @@
 # Design Document: NFL News Processing Pipeline
+Deprecated: This document has moved.
 
+Please see the canonical version here:
+- docs/specs/nfl-news-pipeline/design.md
+
+Rationale: All specs were consolidated under docs/specs/ to avoid duplication.
 ## Overview
 
 The NFL News Processing Pipeline is a Python-based data ingestion system that extracts URLs and metadata from RSS feeds and sitemaps, filters content for NFL relevance using rule-based and LLM-assisted methods, and stores clean, deduplicated data in Supabase. The system emphasizes incremental processing, transparency, and compliance with publisher terms of service.

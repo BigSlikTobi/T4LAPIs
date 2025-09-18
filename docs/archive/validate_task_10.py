@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
-Final validation test for Task 10 completion.
-This test verifies all Task 10 requirements are met.
+Archived: Final validation test for Task 10 completion.
+
+This script verified Task 10 requirements. It is kept for historical reference.
+Use the active validation scripts under tools/validation/ for current checks.
 """
 
 import os
 import sys
 from pathlib import Path
+
+# Original functionality preserved below
 
 def check_task_10_requirements():
     """
@@ -21,7 +25,7 @@ def check_task_10_requirements():
     print("🎯 Task 10 Completion Validation")
     print("=" * 50)
     
-    project_root = Path(__file__).parent
+    project_root = Path(__file__).parent.parent.parent
     all_good = True
     
     # Check 1: Configuration management for story grouping parameters
@@ -205,10 +209,5 @@ def check_task_10_requirements():
         print("   Please review the issues above")
         return False
 
-def main():
-    """Run Task 10 validation."""
-    success = check_task_10_requirements()
-    return 0 if success else 1
-
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(0 if check_task_10_requirements() else 1)

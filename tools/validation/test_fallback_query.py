@@ -6,7 +6,7 @@ This script tests that the fallback query properly filters out articles that alr
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'src'))
 
 from scripts.llm_entity_linker import LLMEntityLinker
 from unittest.mock import Mock, MagicMock

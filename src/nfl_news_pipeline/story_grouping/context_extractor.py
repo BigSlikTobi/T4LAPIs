@@ -278,30 +278,32 @@ class URLContextExtractor:
             return None
         
         # No test-specific behavior here; rely on caller/tests to mock clients
-
         prompt = self._create_llm_prompt(news_item)
+        # Default to gpt-5-nano (as requested); allow override via env var
+        model_name = os.getenv("URL_CONTEXT_MODEL", "gpt-5-nano")
         max_attempts = 3
         base_delay = 0.5
 
         for attempt in range(max_attempts):
             try:
-                response = self.openai_client.chat.completions.create(
-                    model="gpt-5-nano",
-                    messages=[
+                params: Dict[str, Any] = {
+                    "model": model_name,
+                    "messages": [
                         {
                             "role": "system",
-                            "content": "You are an expert NFL news analyst who creates complete, concluding, embedding-friendly summaries from news URLs. Always respond with valid JSON."
+                            "content": "You are an expert NFL news analyst who creates complete, concluding, embedding-friendly summaries from news URLs. Always respond with valid JSON.",
                         },
                         {
                             "role": "user",
-                            "content": prompt
-                        }
+                            "content": prompt,
+                        },
                     ],
-
-                    temperature=0.1,
-                    max_tokens=500,
-                    timeout=30
-                )
+                    "timeout": 30,
+                    # Tests expect explicit temperature and max_tokens to be provided
+                    "temperature": 0.1,
+                    "max_tokens": 500,
+                }
+                response = self.openai_client.chat.completions.create(**params)
             except Exception as e:
                 if attempt == max_attempts - 1:
                     logger.error(f"OpenAI extraction failed for {news_item.url}: {e}")
@@ -344,7 +346,7 @@ class URLContextExtractor:
 
             result = self._parse_llm_response(
                 response.choices[0].message.content,
-                "gpt-5-nano",
+                model_name,
                 news_item,
             )
             if result:

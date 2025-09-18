@@ -10,6 +10,21 @@ import yaml
 from .models import DefaultsConfig, FeedConfig, PipelineConfig
 
 
+def _coerce_bool(value: Any, *, default: bool = False) -> bool:
+    """Best-effort conversion of mixed inputs to bool with an explicit default."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off"}:
+            return False
+    return bool(value)
+
+
 class ConfigError(Exception):
     pass
 
@@ -44,10 +59,10 @@ class ConfigManager:
             user_agent=str(defaults.get("user_agent", "Mozilla/5.0")),
             timeout_seconds=int(defaults.get("timeout_seconds", 10)),
             max_parallel_fetches=int(defaults.get("max_parallel_fetches", 5)),
-            enable_story_grouping=bool(defaults.get("enable_story_grouping", False)),
+            enable_story_grouping=_coerce_bool(defaults.get("enable_story_grouping"), default=True),
             story_grouping_max_parallelism=int(defaults.get("story_grouping_max_parallelism", 4)),
             story_grouping_max_stories_per_run=defaults.get("story_grouping_max_stories_per_run"),
-            story_grouping_reprocess_existing=bool(defaults.get("story_grouping_reprocess_existing", False)),
+            story_grouping_reprocess_existing=_coerce_bool(defaults.get("story_grouping_reprocess_existing"), default=False),
         )
 
         feed_cfgs: List[FeedConfig] = []

@@ -1,5 +1,10 @@
 # Implementation Plan
+Deprecated: This document has moved.
 
+Please see the canonical version here:
+- docs/specs/nfl-news-pipeline/tasks.md
+
+Rationale: All specs were consolidated under docs/specs/ to avoid duplication.
 -
   1. [x] Set up project structure and core data models
   - Create directory structure for the NFL news pipeline components
