@@ -1,6 +1,14 @@
 import certifi
 import os
 import ssl
+import warnings
+
+warnings.warn(
+    "This script is deprecated. Use 'python scripts/rosters_cli.py' instead. "
+    "The new CLI uses standardized loaders with nfl_data_py and follows the core data pipeline pattern.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 # Configure SSL to use certifi CA bundle and ensure requests honors it
 os.environ['SSL_CERT_FILE'] = certifi.where()

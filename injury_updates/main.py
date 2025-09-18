@@ -1,4 +1,11 @@
 import os
+import warnings
+warnings.warn(
+    "This script is deprecated. Use 'python scripts/injuries_cli.py' instead. "
+    "The new CLI uses standardized loaders with nfl_data_py and follows the core data pipeline pattern.",
+    DeprecationWarning,
+    stacklevel=2
+)
 import requests # Ensure requests is imported
 import json
 from supabase import create_client, Client

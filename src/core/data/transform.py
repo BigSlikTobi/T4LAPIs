@@ -550,6 +550,250 @@ class GameDataTransformer(BaseDataTransformer):
             return False
 
 
+class InjuriesDataTransformer(BaseDataTransformer):
+    """
+    Handles transformation, validation, and sanitization of NFL injury data.
+    
+    Transforms raw injury data from nfl_data_py into the format expected
+    by our injuries database table.
+    """
+    
+    def _get_required_columns(self) -> List[str]:
+        """Return list of required columns for injury data."""
+        return [
+            'season', 'team', 'week', 'gsis_id', 'full_name', 
+            'report_status', 'date_modified'
+        ]
+    
+    def _transform_single_record(self, row: pd.Series) -> Optional[Dict[str, Any]]:
+        """Transform a single injury row into a database record."""
+        # Handle date conversion
+        date_modified = None
+        if pd.notna(row.get('date_modified')):
+            try:
+                date_modified = pd.to_datetime(row['date_modified']).isoformat()
+            except:
+                date_modified = None
+        
+        injury_record = {
+            "player_id": str(row['gsis_id']) if pd.notna(row['gsis_id']) else None,
+            "season": int(row['season']) if pd.notna(row['season']) else None,
+            "week": int(row['week']) if pd.notna(row['week']) else None,
+            "team": str(row['team']) if pd.notna(row['team']) else None,
+            "position": str(row['position']) if pd.notna(row['position']) else None,
+            "player_name": str(row['full_name']) if pd.notna(row['full_name']) else None,
+            "report_primary_injury": str(row['report_primary_injury']) if pd.notna(row['report_primary_injury']) else None,
+            "report_secondary_injury": str(row['report_secondary_injury']) if pd.notna(row['report_secondary_injury']) else None,
+            "report_status": str(row['report_status']) if pd.notna(row['report_status']) else None,
+            "practice_primary_injury": str(row['practice_primary_injury']) if pd.notna(row['practice_primary_injury']) else None,
+            "practice_secondary_injury": str(row['practice_secondary_injury']) if pd.notna(row['practice_secondary_injury']) else None,
+            "practice_status": str(row['practice_status']) if pd.notna(row['practice_status']) else None,
+            "game_type": str(row['game_type']) if pd.notna(row['game_type']) else None,
+            "date_modified": date_modified,
+            "version": int(row['version']) if pd.notna(row.get('version')) else None
+        }
+        
+        # Skip if critical data is missing
+        if not injury_record['player_id'] or not injury_record['season'] or not injury_record['week']:
+            self.logger.warning(f"Skipping injury with missing critical data: {row.to_dict()}")
+            return None
+            
+        return injury_record
+    
+    def _validate_record(self, injury_record: Dict[str, Any]) -> bool:
+        """Validate a single injury record for completeness and correctness."""
+        try:
+            # Required fields
+            required_fields = ['player_id', 'season', 'week', 'team']
+            
+            # Check critical required fields are present and non-empty
+            for field in required_fields:
+                if field not in injury_record or not injury_record[field]:
+                    self.logger.warning(f"Injury record missing or empty required field '{field}': {injury_record}")
+                    return False
+            
+            # Validate player_id format (should be like "00-0028830")
+            player_id = injury_record['player_id']
+            if not isinstance(player_id, str) or len(player_id) < 8:
+                self.logger.warning(f"Invalid player_id format: {player_id}")
+                return False
+            
+            # Validate season range
+            if injury_record.get('season') and not (1920 <= injury_record['season'] <= 2030):
+                self.logger.warning(f"Invalid season: {injury_record['season']}")
+                return False
+                
+            # Validate week range
+            if injury_record.get('week') and not (1 <= injury_record['week'] <= 22):  # Including playoffs
+                self.logger.warning(f"Invalid week: {injury_record['week']}")
+                return False
+            
+            # Validate team abbreviation
+            team = injury_record.get('team')
+            if team and not (2 <= len(team) <= 3):
+                self.logger.warning(f"Invalid team abbreviation length: {team}")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error validating injury record: {e}")
+            return False
+
+
+class RostersDataTransformer(BaseDataTransformer):
+    """
+    Handles transformation, validation, and sanitization of NFL roster data.
+    
+    Transforms raw roster data from nfl_data_py into the format expected
+    by our rosters database table.
+    """
+    
+    def _get_required_columns(self) -> List[str]:
+        """Return list of required columns for roster data."""
+        return [
+            'season', 'team', 'position', 'player_name', 'player_id'
+        ]
+    
+    def _transform_single_record(self, row: pd.Series) -> Optional[Dict[str, Any]]:
+        """Transform a single roster row into a database record."""
+        
+        # Generate slug for unique identification
+        team_abbr = str(row.get('team', 'UNK'))
+        position = str(row.get('position', 'UNK'))
+        player_name = str(row.get('player_name', 'Unknown'))
+        jersey_number = row.get('jersey_number')
+        
+        # Create slug
+        slug_jersey = str(int(jersey_number)) if pd.notna(jersey_number) else "NA"
+        slug = f"{position}-{player_name}-{team_abbr}-{slug_jersey}".replace(" ", "-").replace(".", "").lower()
+        if len(slug) > 255:
+            slug = slug[:255]
+        
+        # Handle birth date conversion
+        birth_date = None
+        if pd.notna(row.get('birth_date')):
+            try:
+                birth_date = pd.to_datetime(row['birth_date']).date().isoformat()
+            except:
+                birth_date = None
+        
+        # Handle numeric conversions
+        jersey_number_val = None
+        if pd.notna(jersey_number):
+            try:
+                jersey_number_val = int(jersey_number)
+            except (ValueError, TypeError):
+                pass
+        
+        height_val = None
+        if pd.notna(row.get('height')):
+            try:
+                height_val = int(row['height'])
+            except (ValueError, TypeError):
+                pass
+        
+        weight_val = None
+        if pd.notna(row.get('weight')):
+            try:
+                weight_val = int(row['weight'])
+            except (ValueError, TypeError):
+                pass
+        
+        age_val = None
+        if pd.notna(row.get('age')):
+            try:
+                age_val = int(row['age'])
+            except (ValueError, TypeError):
+                pass
+        
+        years_exp_val = None
+        if pd.notna(row.get('years_exp')):
+            try:
+                years_exp_val = int(row['years_exp'])
+            except (ValueError, TypeError):
+                pass
+        
+        roster_record = {
+            "slug": slug,
+            "season": int(row['season']) if pd.notna(row['season']) else None,
+            "team": team_abbr,
+            "position": position,
+            "depth_chart_position": str(row['depth_chart_position']) if pd.notna(row['depth_chart_position']) else None,
+            "jersey_number": jersey_number_val,
+            "status": str(row['status']) if pd.notna(row['status']) else None,
+            "player_name": player_name,
+            "first_name": str(row['first_name']) if pd.notna(row['first_name']) else None,
+            "last_name": str(row['last_name']) if pd.notna(row['last_name']) else None,
+            "birth_date": birth_date,
+            "height": height_val,
+            "weight": weight_val,
+            "college": str(row['college']) if pd.notna(row['college']) else None,
+            "player_id": str(row['player_id']) if pd.notna(row['player_id']) else None,
+            "years_exp": years_exp_val,
+            "headshot_url": str(row['headshot_url']) if pd.notna(row['headshot_url']) else None,
+            "ngs_position": str(row['ngs_position']) if pd.notna(row['ngs_position']) else None,
+            "week": int(row['week']) if pd.notna(row['week']) else None,
+            "game_type": str(row['game_type']) if pd.notna(row['game_type']) else None,
+            "status_description_abbr": str(row['status_description_abbr']) if pd.notna(row['status_description_abbr']) else None,
+            "football_name": str(row['football_name']) if pd.notna(row['football_name']) else None,
+            "entry_year": int(row['entry_year']) if pd.notna(row['entry_year']) else None,
+            "rookie_year": int(row['rookie_year']) if pd.notna(row['rookie_year']) else None,
+            "draft_club": str(row['draft_club']) if pd.notna(row['draft_club']) else None,
+            "draft_number": int(row['draft_number']) if pd.notna(row['draft_number']) else None,
+            "age": age_val,
+            "version": int(row['version']) if pd.notna(row.get('version')) else None
+        }
+        
+        # Skip if critical data is missing
+        if not roster_record['player_name'] or not roster_record['team']:
+            self.logger.warning(f"Skipping roster entry with missing critical data: {row.to_dict()}")
+            return None
+            
+        return roster_record
+    
+    def _validate_record(self, roster_record: Dict[str, Any]) -> bool:
+        """Validate a single roster record for completeness and correctness."""
+        try:
+            # Required fields
+            required_fields = ['slug', 'player_name', 'team']
+            
+            # Check critical required fields are present and non-empty
+            for field in required_fields:
+                if field not in roster_record or not roster_record[field]:
+                    self.logger.warning(f"Roster record missing or empty required field '{field}': {roster_record}")
+                    return False
+            
+            # Validate slug length
+            if len(roster_record['slug']) > 255:
+                self.logger.warning(f"Slug too long: {roster_record['slug']}")
+                return False
+            
+            # Validate season if present
+            if roster_record.get('season') and not (1920 <= roster_record['season'] <= 2030):
+                self.logger.warning(f"Invalid season: {roster_record['season']}")
+                return False
+            
+            # Validate numeric fields if present
+            if roster_record.get('height') and not (60 <= roster_record['height'] <= 90):  # inches
+                self.logger.warning(f"Invalid height: {roster_record['height']}")
+                return False
+                
+            if roster_record.get('weight') and not (150 <= roster_record['weight'] <= 400):  # pounds
+                self.logger.warning(f"Invalid weight: {roster_record['weight']}")
+                return False
+            
+            if roster_record.get('jersey_number') and not (0 <= roster_record['jersey_number'] <= 99):
+                self.logger.warning(f"Invalid jersey number: {roster_record['jersey_number']}")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error validating roster record: {e}")
+            return False
+
+
 class PlayerWeeklyStatsDataTransformer(BaseDataTransformer):
     """Transform weekly player stats data from nfl_data_py for database storage."""
     
