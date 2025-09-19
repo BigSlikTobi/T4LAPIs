@@ -3,9 +3,10 @@ Data transformation module for converting NFL data to database schema.
 This module provides classes to transform raw NFL data into the format expected by our database.
 """
 
+import re
 import pandas as pd
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 from .team_abbr import normalize_team_abbr
 from abc import ABC, abstractmethod
@@ -452,6 +453,90 @@ class PlayerDataTransformer(BaseDataTransformer):
             self.logger.info(f"Removed {duplicates_removed} duplicate player records, kept {len(deduplicated_records)} unique players")
         
         return deduplicated_records
+
+
+class RosterDataTransformer(BaseDataTransformer):
+    """Transform seasonal roster data into simple team/player pairs."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.skipped_records: List[Dict[str, Any]] = []
+
+    def _get_required_columns(self) -> List[str]:
+        return ["team", "player_id"]
+
+    def _transform_single_record(self, row: pd.Series) -> Optional[Dict[str, Any]]:
+        player_id = self._safe_str(row.get("player_id"))
+        team_code = self._safe_str(row.get("team"))
+
+        if not player_id:
+            self._record_skip("missing_player", row)
+            return None
+
+        team_abbr = normalize_team_abbr(team_code)
+        if not team_abbr:
+            self._record_skip("invalid_team", row)
+            return None
+
+        return {"team": team_abbr, "player": player_id}
+
+    def _validate_record(self, record: Dict[str, Any]) -> bool:
+        team = record.get("team")
+        player = record.get("player")
+
+        if not team or not isinstance(team, str):
+            self.logger.warning(f"Roster record missing team: {record}")
+            return False
+        if not player or not isinstance(player, str):
+            self.logger.warning(f"Roster record missing player: {record}")
+            return False
+        return True
+
+    def _sanitize_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        sanitized = super()._sanitize_record(record)
+        if sanitized.get("team"):
+            sanitized["team"] = sanitized["team"].upper()
+        if sanitized.get("player"):
+            sanitized["player"] = sanitized["player"].strip()
+        return sanitized
+
+    def _deduplicate_records(self, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        seen: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        for record in records:
+            team = record.get("team")
+            player = record.get("player")
+            if not team or not player:
+                continue
+
+            key = (team, player)
+            if key in seen:
+                self.skipped_records.append(
+                    {
+                        "reason": "duplicate_pair",
+                        "team": team,
+                        "player": player,
+                    }
+                )
+                continue
+            seen[key] = record
+        return list(seen.values())
+
+    def _safe_str(self, value: Any, default: str = "") -> str:
+        if pd.isna(value) or value is None:
+            return default
+        text = str(value).strip()
+        return text
+
+    def _record_skip(self, reason: str, row: pd.Series) -> None:
+        self.skipped_records.append(
+            {
+                "reason": reason,
+                "team": row.get("team"),
+                "player_id": row.get("player_id"),
+                "player_name": row.get("player_name"),
+            }
+        )
+
 
 class GameDataTransformer(BaseDataTransformer):
     """
