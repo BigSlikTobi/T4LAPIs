@@ -26,18 +26,68 @@ class NextGenStatsDataLoader(BaseDataLoader):
         """Return the NextGenStatsDataTransformer class."""
         return NextGenStatsDataTransformer
     
-    def fetch_raw_data(self, stat_type: str, years: List[int]) -> pd.DataFrame:
+    def fetch_raw_data(self, stat_type: str, years: List[int], player_id=None) -> pd.DataFrame:
         """Fetch raw Next Gen Stats data from nfl_data_py.
         
         Args:
             stat_type: Type of NGS data ('passing', 'rushing', 'receiving')
             years: List of NFL season years
+            player_id: Optional GSIS player ID or list of IDs to filter results
             
         Returns:
             Raw Next Gen Stats data DataFrame
         """
+        # Support auto mode by aggregating across all NGS types
+        if stat_type == 'auto':
+            combined: List[pd.DataFrame] = []
+            for st in ['passing', 'rushing', 'receiving']:
+                self.logger.info(f"Fetching Next Gen Stats {st} data for years {years}")
+                sdf = fetch_ngs_data(st, years)
+                # Apply player filter per-slice if requested
+                if player_id:
+                    sdf = self._filter_by_player_id(sdf, player_id, st)
+                if not sdf.empty:
+                    combined.append(sdf)
+            if not combined:
+                return pd.DataFrame()
+            return pd.concat(combined, ignore_index=True, sort=False)
+
         self.logger.info(f"Fetching Next Gen Stats {stat_type} data for years {years}")
-        return fetch_ngs_data(stat_type, years)
+        df = fetch_ngs_data(stat_type, years)
+
+        # Optional filtering by player_id (accept str or list)
+        if player_id:
+            df = self._filter_by_player_id(df, player_id, stat_type)
+
+        return df
+
+    def _filter_by_player_id(self, df: pd.DataFrame, player_id, stat_type: str) -> pd.DataFrame:
+        """Filter an NGS dataframe by player_id(s).
+        Accepts string (possibly comma-separated) or an iterable of IDs.
+        """
+        # Normalize incoming parameter into a set of string IDs
+        if isinstance(player_id, (list, tuple, set)):
+            player_ids = {str(x).strip() for x in player_id if x is not None}
+        else:
+            s = str(player_id).strip()
+            # allow comma-separated list
+            player_ids = {p.strip() for p in s.split(',') if p.strip()}
+
+        if not player_ids or df.empty:
+            return df
+
+        initial_count = len(df)
+        # Prefer filtering by player_gsis_id if present; fallback to player_id
+        if 'player_gsis_id' in df.columns:
+            out = df[df['player_gsis_id'].astype(str).isin(player_ids)]
+        elif 'player_id' in df.columns:
+            out = df[df['player_id'].astype(str).isin(player_ids)]
+        else:
+            out = df
+        self.logger.info(
+            f"Filtered NGS {stat_type} data by player_id(s) {sorted(player_ids)}: {len(out)} of {initial_count} records"
+        )
+        return out
     
     def load_ngs_data(self, stat_type: str, years: List[int], dry_run: bool = False, 
                       clear_table: bool = False):
@@ -63,6 +113,22 @@ class NextGenStatsDataTransformer(BaseDataTransformer):
     Transforms raw NGS data from nfl_data_py into the format expected
     by our next_gen_stats database table.
     """
+    
+    def transform(self, raw_df: pd.DataFrame) -> List[dict]:
+        """Override to normalize expected column names before validation.
+        
+        nfl_data_py uses `player_gsis_id` and `player_position` in NGS outputs.
+        Our pipeline expects `player_id` and `position`. Create aliases when needed
+        so the base pipeline's required column checks pass.
+        """
+        df = raw_df.copy()
+        # Alias player_gsis_id -> player_id when missing
+        if 'player_id' not in df.columns and 'player_gsis_id' in df.columns:
+            df['player_id'] = df['player_gsis_id']
+        # Alias player_position -> position when missing
+        if 'position' not in df.columns and 'player_position' in df.columns:
+            df['position'] = df['player_position']
+        return super().transform(df)
     
     def _get_required_columns(self) -> List[str]:
         """Return list of required columns for Next Gen Stats data."""

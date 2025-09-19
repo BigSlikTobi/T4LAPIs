@@ -26,23 +26,137 @@ class SnapCountsDataLoader(BaseDataLoader):
         """Return the SnapCountsDataTransformer class."""
         return SnapCountsDataTransformer
     
-    def fetch_raw_data(self, years: List[int]) -> pd.DataFrame:
-        """Fetch raw snap counts data from nfl_data_py.
+    def fetch_raw_data(self, years: List[int], player_id=None, week: int | None = None) -> pd.DataFrame:
+        """Fetch raw snap counts data from nfl_data_py, with optional player filtering.
         
         Args:
             years: List of NFL season years
+            player_id: Optional GSIS player ID or list of IDs to filter by
+            week: Optional week to filter; when None, defaults to latest week per season
             
         Returns:
-            Raw snap counts data DataFrame
+            Raw snap counts data DataFrame (optionally filtered)
         """
         self.logger.info(f"Fetching snap counts data for years {years}")
         try:
             snap_counts_df = nfl.import_snap_counts(years)
             self.logger.info(f"Successfully fetched {len(snap_counts_df)} snap counts records for {len(years)} years")
+
+            # Optional player filtering
+            if player_id is not None and not snap_counts_df.empty:
+                snap_counts_df = self._filter_by_player_id(snap_counts_df, player_id)
+
+            # Week filtering
+            if not snap_counts_df.empty and 'season' in snap_counts_df.columns and 'week' in snap_counts_df.columns:
+                if week is not None:
+                    before = len(snap_counts_df)
+                    snap_counts_df = snap_counts_df[snap_counts_df['week'] == int(week)].copy()
+                    self.logger.info(f"Filtered snap counts to week {week}: {len(snap_counts_df)}/{before} records")
+                else:
+                    # Default to latest week per season
+                    before = len(snap_counts_df)
+                    latest_mask = snap_counts_df['week'] == snap_counts_df.groupby('season')['week'].transform('max')
+                    snap_counts_df = snap_counts_df[latest_mask].copy()
+                    try:
+                        latest_per_season = snap_counts_df.groupby('season')['week'].max().to_dict()
+                        self.logger.info(f"Defaulted to latest week per season for snap counts: {latest_per_season}; kept {len(snap_counts_df)}/{before} records")
+                    except Exception:
+                        self.logger.info(f"Defaulted to latest week per season for snap counts; kept {len(snap_counts_df)}/{before} records")
+
             return snap_counts_df
         except Exception as e:
             self.logger.error(f"Failed to fetch snap counts data for years {years}: {e}")
             raise
+
+    def _filter_by_player_id(self, df: pd.DataFrame, player_id) -> pd.DataFrame:
+        """Filter a DataFrame by player identifier, supporting multiple column names.
+        
+        Supports either a single string ID or a list of IDs. Attempts to use one of
+        ['player_id', 'player_gsis_id', 'gsis_id', 'pfr_player_id'] depending on what the dataset provides.
+        """
+        # Normalize input to a set of strings
+        if isinstance(player_id, (list, tuple, set)):
+            ids = {str(p).strip() for p in player_id if str(p).strip()}
+        else:
+            ids = {str(player_id).strip()} if str(player_id).strip() else set()
+
+        if not ids:
+            return df
+
+        # Helper to detect GSIS-style IDs like '00-0038507'
+        def _looks_like_gsis(s: str) -> bool:
+            return '-' in s and s.split('-')[0].isdigit()
+
+        available_cols = set(df.columns)
+
+        # If DataFrame already has GSIS column, filter directly
+        for col in ["player_id", "player_gsis_id", "gsis_id"]:
+            if col in available_cols:
+                before = len(df)
+                filtered = df[df[col].astype(str).isin(ids)].copy()
+                self.logger.info(
+                    f"Applied player filter on '{col}': kept {len(filtered)}/{before} records for players {sorted(ids)}"
+                )
+                return filtered
+
+        # If it has PFR ids, map any GSIS inputs to PFR and filter
+        if "pfr_player_id" in available_cols:
+            gsis_ids = {i for i in ids if _looks_like_gsis(i)}
+            pfr_inputs = {i for i in ids if not _looks_like_gsis(i)}
+
+            if gsis_ids:
+                mapped = self._map_gsis_to_pfr(gsis_ids)
+                if not mapped:
+                    self.logger.warning(f"Could not map GSIS IDs to PFR: {sorted(gsis_ids)}")
+                pfr_inputs |= mapped
+
+            if not pfr_inputs:
+                self.logger.warning("Player filter found 'pfr_player_id' column but no PFR IDs to filter after mapping")
+                return df
+
+            before = len(df)
+            filtered = df[df["pfr_player_id"].astype(str).isin(pfr_inputs)].copy()
+            self.logger.info(
+                f"Applied player filter on 'pfr_player_id': kept {len(filtered)}/{before} records for players {sorted(pfr_inputs)}"
+            )
+            return filtered
+
+        self.logger.warning(
+            f"Player filter requested but no suitable player id column found in DataFrame. "
+            f"Available columns: {list(df.columns)[:10]}..."
+        )
+        return df
+
+    def _map_gsis_to_pfr(self, gsis_ids: set) -> set:
+        """Map GSIS player IDs to PFR player IDs using nfl_data_py players reference."""
+        try:
+            players_df = nfl.import_players()
+            # Determine PFR and GSIS column names
+            pfr_col = 'pfr_player_id' if 'pfr_player_id' in players_df.columns else (
+                'pfr_id' if 'pfr_id' in players_df.columns else None
+            )
+            if not pfr_col:
+                self.logger.warning("Players reference lacks PFR id columns; cannot map GSIS->PFR")
+                return set()
+
+            gsis_col = None
+            for c in ['player_id', 'gsis_id', 'gsis', 'gsis_it']:
+                if c in players_df.columns:
+                    gsis_col = c
+                    break
+            if not gsis_col:
+                self.logger.warning("Players reference lacks a GSIS id column; cannot map GSIS->PFR")
+                return set()
+
+            ref = players_df[[gsis_col, pfr_col]].dropna()
+            ref[gsis_col] = ref[gsis_col].astype(str)
+            ref[pfr_col] = ref[pfr_col].astype(str)
+            mapped = set(ref[ref[gsis_col].isin({str(i) for i in gsis_ids})][pfr_col].unique().tolist())
+            self.logger.info(f"Mapped {len(mapped)}/{len(gsis_ids)} GSIS IDs to PFR IDs using {gsis_col}->{pfr_col}")
+            return mapped
+        except Exception as e:
+            self.logger.warning(f"Failed to map GSIS to PFR ids: {e}")
+            return set()
     
     def load_snap_counts_data(self, years: List[int], dry_run: bool = False, 
                              clear_table: bool = False):
@@ -72,6 +186,30 @@ class SnapCountsDataTransformer(BaseDataTransformer):
         return [
             'player_id', 'player', 'team', 'season', 'week', 'game_id'
         ]
+
+    def transform(self, raw_df: pd.DataFrame) -> List[dict]:
+        """Alias source-specific columns before base validation and transform.
+        
+        nfl_data_py's snap counts data exposes 'pfr_player_id'. We standardize this
+        to 'player_id' so our required columns check passes and downstream schema
+        remains consistent across loaders.
+        """
+        df = raw_df.copy()
+        if 'player_id' not in df.columns and 'pfr_player_id' in df.columns:
+            df['player_id'] = df['pfr_player_id']
+        return super().transform(df)
+
+    def transform(self, raw_df: pd.DataFrame) -> List[dict]:
+        """Alias source-specific columns before base validation and transform.
+        
+        nfl_data_py's snap counts data exposes 'pfr_player_id'. We standardize this
+        to 'player_id' so our required columns check passes and downstream schema
+        remains consistent across loaders.
+        """
+        df = raw_df.copy()
+        if 'player_id' not in df.columns and 'pfr_player_id' in df.columns:
+            df['player_id'] = df['pfr_player_id']
+        return super().transform(df)
     
     def _transform_single_record(self, row: pd.Series) -> dict:
         """Transform a single snap counts record.

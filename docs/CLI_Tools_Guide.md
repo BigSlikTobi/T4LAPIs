@@ -11,6 +11,7 @@ All CLI tools are located in the `scripts/` directory and provide consistent int
 - **`players_cli.py`** - Load NFL player data  
 - **`games_cli.py`** - Load NFL game data
 - **`player_weekly_stats_cli.py`** - Load player weekly statistics
+- **`depth_charts_cli.py`** - Load NFL depth charts (weekly team depth positions)
 
 ### LLM and Entity Linking Scripts
 - **`llm_entity_linker_cli.py`** - LLM-enhanced entity extraction and linking
@@ -158,6 +159,32 @@ python scripts/player_weekly_stats_cli.py 2024 --clear --dry-run
 - Comprehensive player statistics (passing, rushing, receiving, etc.)
 - Weekly granularity for season-long analysis
 - Links to player and game data
+
+### 5. Depth Charts CLI (`depth_charts_cli.py`)
+
+Load weekly team depth chart information for players.
+
+```bash
+# Load 2024 season depth charts (dry run)
+python scripts/depth_charts_cli.py 2024 --dry-run
+
+# Load multiple seasons
+python scripts/depth_charts_cli.py 2023 2024 --dry-run
+
+# Clear and reload
+python scripts/depth_charts_cli.py 2024 --clear --dry-run
+
+# Verbose logging
+python scripts/depth_charts_cli.py 2024 --dry-run --verbose
+```
+
+**Arguments:**
+- `years` - One or more NFL season years (required)
+
+**Features:**
+- Weekly depth chart positions per team
+- Includes position, depth, jersey number, formation when available
+- Validates essential identifiers (season, team, player, position)
 
 ## 🐳 Docker Usage
 

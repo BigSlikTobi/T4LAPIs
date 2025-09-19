@@ -2,6 +2,7 @@
 """
 CLI script for loading NFL Play-by-Play data.
 Supports loading by season with various options including downsampling for performance.
+NOTE: PBP is only available until season 2024 in nfl_data_py. For 2025+, we need to use import_weekly_data.
 """
 
 import sys
@@ -26,6 +27,11 @@ def main():
         action="store_true", 
         help="Disable downsampling for full dataset (warning: very large!)"
     )
+    parser.add_argument(
+        "--week",
+        type=int,
+        help="Filter to a specific week. If omitted, defaults to latest week available per season."
+    )
     
     args = parser.parse_args()
     setup_cli_logging(args)
@@ -45,12 +51,14 @@ def main():
         result = loader.load_data(
             years=args.years,
             downsampling=downsampling,
+            week=args.week,
             dry_run=args.dry_run,
             clear_table=args.clear
         )
         
         # Print results using utility function
-        operation = f"play-by-play data load for seasons {', '.join(map(str, args.years))}"
+        week_suffix = f" (week {args.week})" if args.week else " (latest week)"
+        operation = f"play-by-play data load for seasons {', '.join(map(str, args.years))}{week_suffix}"
         print_results(result, operation, args.dry_run)
         
         if result["success"] and not args.dry_run:
@@ -69,5 +77,9 @@ def main():
 
 
 if __name__ == "__main__":
-    success = main()
-    sys.exit(0 if success else 1)
+    exit_code_or_bool = main()
+    # handle_cli_errors returns 0/1 for tests; pass through directly if int
+    if isinstance(exit_code_or_bool, int):
+        sys.exit(exit_code_or_bool)
+    else:
+        sys.exit(0 if exit_code_or_bool else 1)

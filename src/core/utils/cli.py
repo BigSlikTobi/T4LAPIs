@@ -52,12 +52,13 @@ def handle_cli_errors(func: Callable) -> Callable:
         func: The main CLI function to wrap
         
     Returns:
-        Wrapped function with error handling
+        Wrapped function with error handling that returns an int exit code (0 = success, 1 = failure)
     """
     def wrapper(*args, **kwargs) -> int:
         try:
             result = func(*args, **kwargs)
-            return 0 if result else 1
+            # Normalize to exit code semantics for tests: 0 on success, 1 on failure
+            return 0 if bool(result) else 1
         except KeyboardInterrupt:
             print("\nOperation cancelled by user")
             return 1

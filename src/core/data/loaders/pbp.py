@@ -27,18 +27,44 @@ class PlayByPlayDataLoader(BaseDataLoader):
         """Return the PlayByPlayDataTransformer class."""
         return PlayByPlayDataTransformer
     
-    def fetch_raw_data(self, years: List[int], downsampling: bool = True) -> pd.DataFrame:
+    def fetch_raw_data(self, years: List[int], downsampling: bool = True, week: int | None = None) -> pd.DataFrame:
         """Fetch raw play-by-play data from nfl_data_py.
         
         Args:
             years: List of NFL season years
             downsampling: Whether to enable downsampling for performance
+            week: Optional specific week to filter. If None, defaults to latest week per season.
             
         Returns:
             Raw play-by-play data DataFrame
         """
         self.logger.info(f"Fetching play-by-play data for years {years}")
-        return fetch_pbp_data(years, downsampling=downsampling)
+        df = fetch_pbp_data(years, downsampling=downsampling)
+
+        if df.empty:
+            return df
+
+        if 'week' not in df.columns or 'season' not in df.columns:
+            self.logger.warning("Fetched PBP data missing 'week' or 'season' columns; skipping week filter")
+            return df
+
+        if week is not None:
+            before = len(df)
+            df = df[df['week'] == int(week)].copy()
+            self.logger.info(f"Filtered PBP to week {week}: {len(df)}/{before} plays")
+            return df
+
+        # Default: keep latest week per season
+        before = len(df)
+        latest_mask = df['week'] == df.groupby('season')['week'].transform('max')
+        df = df[latest_mask].copy()
+        # Log summary per season
+        try:
+            latest_per_season = df.groupby('season')['week'].max().to_dict()
+            self.logger.info(f"Defaulted to latest week per season: {latest_per_season}; kept {len(df)}/{before} plays")
+        except Exception:
+            self.logger.info(f"Defaulted to latest week per season; kept {len(df)}/{before} plays")
+        return df
     
     def load_pbp_data(self, years: List[int], dry_run: bool = False, 
                       clear_table: bool = False, downsampling: bool = True):

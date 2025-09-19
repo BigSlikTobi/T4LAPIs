@@ -81,7 +81,7 @@ def explore_function(func_name, func_obj, test_years=None):
                             if func_name == 'import_ngs_data':
                                 df = func_obj('passing', test_years)
                             elif func_name == 'import_pbp_data':
-                                df = func_obj(test_years, downsampling=True)
+                                df = func_obj(test_years, downcast=True)
                             else:
                                 result['error'] = f"Years param: {str(e1)}, Single year: {str(e2)}"
                         except Exception as e3:

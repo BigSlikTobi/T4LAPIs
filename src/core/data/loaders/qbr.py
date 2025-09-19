@@ -26,11 +26,13 @@ class ESPNQBRDataLoader(BaseDataLoader):
         """Return the ESPNQBRDataTransformer class."""
         return ESPNQBRDataTransformer
     
-    def fetch_raw_data(self, years: List[int]) -> pd.DataFrame:
+    def fetch_raw_data(self, years: List[int], week: int | None = None, player_id=None) -> pd.DataFrame:
         """Fetch raw ESPN QBR data from nfl_data_py.
         
         Args:
             years: List of NFL season years
+            week: Optional week to filter; if None, defaults to latest week per season
+            player_id: Optional GSIS or PFR player identifier(s) to filter by
             
         Returns:
             Raw ESPN QBR data DataFrame
@@ -39,6 +41,61 @@ class ESPNQBRDataLoader(BaseDataLoader):
         try:
             qbr_df = nfl.import_qbr(years)
             self.logger.info(f"Successfully fetched {len(qbr_df)} QBR records for {len(years)} years")
+
+            # Normalize expected columns across nfl_data_py versions
+            if not qbr_df.empty:
+                # Derive 'week' from 'game_week' if not present
+                if 'week' not in qbr_df.columns and 'game_week' in qbr_df.columns:
+                    def _parse_week(v):
+                        try:
+                            # Accept ints/strings of ints
+                            if pd.isna(v):
+                                return None
+                            s = str(v).strip()
+                            if s.isdigit():
+                                return int(s)
+                            if s.lower().startswith('season'):
+                                # Treat season total as week 0
+                                return 0
+                        except Exception:
+                            pass
+                        return None
+                    qbr_df = qbr_df.copy()
+                    qbr_df['week'] = qbr_df['game_week'].apply(_parse_week)
+
+                # Create a unified 'name' field if missing
+                if 'name' not in qbr_df.columns:
+                    if 'name_display' in qbr_df.columns:
+                        qbr_df['name'] = qbr_df['name_display']
+                    elif 'name_short' in qbr_df.columns:
+                        qbr_df['name'] = qbr_df['name_short']
+                    elif {'name_first','name_last'}.issubset(qbr_df.columns):
+                        qbr_df['name'] = (qbr_df['name_first'].fillna('') + ' ' + qbr_df['name_last'].fillna('')).str.strip()
+
+                # Prefer team abbreviation when only 'team_abb' exists
+                if 'team' not in qbr_df.columns and 'team_abb' in qbr_df.columns:
+                    qbr_df['team'] = qbr_df['team_abb']
+
+            # Optional player filtering
+            if player_id is not None and not qbr_df.empty:
+                qbr_df = self._filter_by_player_id(qbr_df, player_id)
+
+            # Week filtering (QBR can be weekly; otherwise season total uses week 0)
+            if not qbr_df.empty and 'season' in qbr_df.columns and 'week' in qbr_df.columns:
+                if week is not None:
+                    before = len(qbr_df)
+                    qbr_df = qbr_df[qbr_df['week'] == int(week)].copy()
+                    self.logger.info(f"Filtered QBR to week {week}: {len(qbr_df)}/{before} records")
+                else:
+                    before = len(qbr_df)
+                    latest_mask = qbr_df['week'] == qbr_df.groupby('season')['week'].transform('max')
+                    qbr_df = qbr_df[latest_mask].copy()
+                    try:
+                        latest_per_season = qbr_df.groupby('season')['week'].max().to_dict()
+                        self.logger.info(f"Defaulted to latest week per season for QBR: {latest_per_season}; kept {len(qbr_df)}/{before} records")
+                    except Exception:
+                        self.logger.info(f"Defaulted to latest week per season for QBR; kept {len(qbr_df)}/{before} records")
+
             return qbr_df
         except Exception as e:
             self.logger.error(f"Failed to fetch QBR data for years {years}: {e}")
@@ -58,6 +115,29 @@ class ESPNQBRDataLoader(BaseDataLoader):
         """
         return self.load_data(years=years, dry_run=dry_run, clear_table=clear_table)
 
+    def _filter_by_player_id(self, df: pd.DataFrame, player_id) -> pd.DataFrame:
+        """Filter QBR dataset by player identifier across possible columns.
+        ESPN QBR includes 'player_id' (usually ESPN id), but we also check common id columns.
+        """
+        if isinstance(player_id, (list, tuple, set)):
+            ids = {str(p).strip() for p in player_id if str(p).strip()}
+        else:
+            ids = {str(player_id).strip()} if str(player_id).strip() else set()
+
+        if not ids:
+            return df
+
+        candidate_cols = ['player_id', 'gsis_id', 'pfr_player_id', 'pfr_id']
+        filter_col = next((c for c in candidate_cols if c in df.columns), None)
+        if not filter_col:
+            self.logger.info("No recognized player id column in QBR dataset; skipping player filter")
+            return df
+
+        before = len(df)
+        filtered = df[df[filter_col].astype(str).isin(ids)].copy()
+        self.logger.info(f"Applied player filter on '{filter_col}': kept {len(filtered)}/{before} QBR records for players {sorted(ids)}")
+        return filtered
+
 
 class ESPNQBRDataTransformer(BaseDataTransformer):
     """
@@ -69,9 +149,8 @@ class ESPNQBRDataTransformer(BaseDataTransformer):
     
     def _get_required_columns(self) -> List[str]:
         """Return list of required columns for ESPN QBR data."""
-        return [
-            'season', 'week', 'player_id', 'name', 'team'
-        ]
+        # Minimal required fields after normalization
+        return ['season', 'player_id']
     
     def _transform_single_record(self, row: pd.Series) -> dict:
         """Transform a single ESPN QBR record.
@@ -87,8 +166,8 @@ class ESPNQBRDataTransformer(BaseDataTransformer):
             'season': int(row.get('season', 0)) if pd.notna(row.get('season')) else None,
             'week': int(row.get('week', 0)) if pd.notna(row.get('week')) else None,
             'player_id': str(row.get('player_id', '')) if pd.notna(row.get('player_id')) else None,
-            'name': str(row.get('name', '')) if pd.notna(row.get('name')) else None,
-            'team': str(row.get('team', '')) if pd.notna(row.get('team')) else None,
+            'name': str(row.get('name', row.get('name_display', ''))) if pd.notna(row.get('name', row.get('name_display', None))) else None,
+            'team': str(row.get('team', row.get('team_abb', ''))) if pd.notna(row.get('team', row.get('team_abb', None))) else None,
         }
         
         # Game information
@@ -143,11 +222,11 @@ class ESPNQBRDataTransformer(BaseDataTransformer):
             True if record is valid, False otherwise
         """
         # Must have essential identifiers
-        if not record.get('player_id') or not record.get('name'):
+        if not record.get('player_id'):
             return False
         
-        # Must have valid season and team
-        if not record.get('season') or not record.get('team'):
+        # Must have valid season
+        if not record.get('season'):
             return False
         
         # Season should be reasonable (QBR started in 2006)
