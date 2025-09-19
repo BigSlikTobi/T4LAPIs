@@ -5,11 +5,16 @@ Demonstrates tasks 3.1, 3.2, and 3.3 functionality.
 """
 
 import asyncio
+import os
+import sys
 import logging
 from datetime import datetime, timezone
 
-from src.nfl_news_pipeline.models import ProcessedNewsItem
-from src.nfl_news_pipeline.story_grouping import URLContextExtractor, ContextCache
+# Add the src directory to Python path for local execution
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+from nfl_news_pipeline.models import ProcessedNewsItem
+from nfl_news_pipeline.story_grouping import URLContextExtractor, ContextCache
 
 
 def setup_logging():
@@ -143,7 +148,7 @@ def demo_cache_utilities():
     print(f"\n🛠️  Cache Utilities Demo")
     print("=" * 30)
     
-    from src.nfl_news_pipeline.story_grouping import generate_metadata_hash
+    from nfl_news_pipeline.story_grouping import generate_metadata_hash
     
     # Test metadata hash generation
     hash1 = generate_metadata_hash("Patrick Mahomes injury update")

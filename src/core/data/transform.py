@@ -249,6 +249,19 @@ class PlayerDataTransformer(BaseDataTransformer):
             except:
                 birth_date = None
         
+        # Handle Sleeper ID
+        sleeper_id = None
+        sleeper_value = row.get('sleeper_id') if hasattr(row, 'get') else None
+        if pd.notna(sleeper_value):
+            try:
+                # Keep Sleeper IDs canonical by stripping whitespace and removing decimal suffixes
+                if isinstance(sleeper_value, float):
+                    sleeper_id = str(int(sleeper_value)) if float(sleeper_value).is_integer() else str(sleeper_value)
+                else:
+                    sleeper_id = str(sleeper_value).strip()
+            except (ValueError, TypeError):
+                sleeper_id = str(sleeper_value)
+
         # Handle draft information
         draft_year = None
         draft_round = None
@@ -311,7 +324,8 @@ class PlayerDataTransformer(BaseDataTransformer):
             "draft_year": draft_year,
             "draft_round": draft_round,
             "draft_pick": draft_pick,
-            "draft_team": draft_team
+            "draft_team": draft_team,
+            "sleeper_id": sleeper_id
         }
         
         # Skip if critical data is missing
@@ -743,7 +757,6 @@ class PlayerWeeklyStatsDataTransformer(BaseDataTransformer):
             self.logger.error(f"Error generating game_id: {e}")
             return None
 
-
 # Import new transformers from loaders modules
 from .loaders.pbp import PlayByPlayDataTransformer
 from .loaders.ngs import NextGenStatsDataTransformer  
@@ -757,4 +770,3 @@ from .loaders.ftn import FootballStudyHallDataTransformer
 from .loaders.officials import OfficialsDataTransformer
 from .loaders.qbr import ESPNQBRDataTransformer
 from .loaders.lines import LinesDataTransformer, WinTotalsDataTransformer
-
