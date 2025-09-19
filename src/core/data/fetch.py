@@ -139,13 +139,45 @@ def fetch_pbp_data(years: List[int], downsampling: bool = True) -> pd.DataFrame:
         Exception: If data fetching fails
     """
     try:
-        logger.info(f"Fetching play-by-play data for years: {years}, downsampling: {downsampling}")
-        pbp_df = nfl.import_pbp_data(years, downsampling=downsampling)
+        # Preferred path: use documented API with downcast flag so call signature is explicit
+        logger.info(f"Fetching play-by-play data for years: {years} (downcast={downsampling})")
+        pbp_df = nfl.import_pbp_data(years, downcast=downsampling)
         logger.info(f"Successfully fetched {len(pbp_df)} play-by-play records for {len(years)} years")
         return pbp_df
-    except Exception as e:
-        logger.error(f"Failed to fetch play-by-play data for years {years}: {e}")
-        raise
+    except Exception as e_primary:
+        # Try minimal call for versions that do not accept downcast
+        logger.warning(
+            f"Primary import_pbp_data(years, downcast={downsampling}) failed for years {years}: {e_primary}. "
+            "Retrying without downcast parameter..."
+        )
+        try:
+            pbp_df = nfl.import_pbp_data(years)
+            # Optionally downcast locally if requested and dtype reduction desired
+            if downsampling and isinstance(pbp_df, pd.DataFrame):
+                float_cols = pbp_df.select_dtypes(include=['float64']).columns
+                if len(float_cols) > 0:
+                    pbp_df[float_cols] = pbp_df[float_cols].astype('float32')
+            logger.info(f"Successfully fetched {len(pbp_df)} play-by-play records for {len(years)} years via fallback call")
+            return pbp_df
+        except Exception as e_downcast:
+            # Some versions of nfl_data_py may raise a NameError ('Error' not defined) under certain conditions.
+            logger.warning(
+                f"Second attempt without downcast failed for years {years}: {e_downcast}. "
+                "Attempting to cache PBP data locally and retry from cache..."
+            )
+            try:
+                nfl.cache_pbp(years, downcast=downsampling)
+                pbp_df = nfl.import_pbp_data(years, downcast=downsampling, cache=True)
+                logger.info(
+                    f"Successfully fetched {len(pbp_df)} play-by-play records for {len(years)} years via cache retry"
+                )
+                return pbp_df
+            except Exception as e_cache:
+                logger.error(
+                    f"Failed to fetch play-by-play data for years {years} after cache retry: {e_cache}"
+                )
+                # Raise a more descriptive error to the caller
+                raise
 
 
 def fetch_ngs_data(stat_type: str, years: List[int]) -> pd.DataFrame:

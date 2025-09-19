@@ -79,7 +79,8 @@ class BaseDataLoader(ABC):
         self.logger.info(f"Successfully transformed {len(transformed_records)} records")
         return transformed_records
     
-    def load_data(self, dry_run: bool = False, clear_table: bool = False, **fetch_kwargs) -> Dict[str, Any]:
+    def load_data(self, dry_run: bool = False, clear_table: bool = False,
+                  include_records: bool = False, **fetch_kwargs) -> Dict[str, Any]:
         """Complete workflow to load data into the database.
         
         Args:
@@ -113,7 +114,7 @@ class BaseDataLoader(ABC):
             
             # Step 3: Handle dry run
             if dry_run:
-                return self._handle_dry_run(transformed_records, clear_table)
+                return self._handle_dry_run(transformed_records, clear_table, include_records)
             
             # Step 4: Clear table if requested
             if clear_table:
@@ -130,7 +131,8 @@ class BaseDataLoader(ABC):
             return {"success": False, "error": str(e)}
     
     def _handle_dry_run(self, transformed_records: List[Dict[str, Any]], 
-                       clear_table: bool) -> Dict[str, Any]:
+                       clear_table: bool,
+                       include_records: bool = False) -> Dict[str, Any]:
         """Handle dry run mode.
         
         Args:
@@ -149,13 +151,18 @@ class BaseDataLoader(ABC):
             sample_record = transformed_records[0]
             self.logger.info(f"Sample record: {sample_record}")
         
-        return {
+        result = {
             "success": True,
             "dry_run": True,
             "would_clear": clear_table,
             "would_upsert": len(transformed_records),
             "sample_record": transformed_records[0] if transformed_records else None
         }
+
+        if include_records:
+            result["records"] = transformed_records
+
+        return result
     
     def _load_to_database(self, raw_data: pd.DataFrame, 
                          transformed_records: List[Dict[str, Any]],

@@ -132,7 +132,7 @@ class TestNFLDataFetch(unittest.TestCase):
         
         result = fetch_pbp_data(self.sample_years, downsampling=True)
         
-        mock_import_pbp_data.assert_called_once_with(self.sample_years, downsampling=True)
+        mock_import_pbp_data.assert_called_once_with(self.sample_years, downcast=True)
         pd.testing.assert_frame_equal(result, self.sample_df)
 
     @patch('src.core.data.fetch.nfl.import_ngs_data')
