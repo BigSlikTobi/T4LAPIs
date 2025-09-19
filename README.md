@@ -1,5 +1,28 @@
 # T4LAPIs – NFL News, Data, and AI Content Platform
 
+<p align="left">
+  <a href="https://github.com/BigSlikTobi/T4LAPIs/actions">
+    <img alt="CI" src="https://img.shields.io/github/actions/workflow/status/BigSlikTobi/T4LAPIs/ci.yml?label=CI&logo=github&style=flat-square">
+  </a>
+  <a href="#testing">
+    <img alt="Tests" src="https://img.shields.io/badge/tests-pytest-blue?logo=pytest&style=flat-square">
+  </a>
+  <a href="https://www.python.org/downloads/release/python-3110/">
+    <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white&style=flat-square">
+  </a>
+  <a href="Dockerfile">
+    <img alt="Docker" src="https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white&style=flat-square">
+  </a>
+  <a href="LICENSE">
+    <img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square">
+  </a>
+  <!-- Optional coverage: set to your Codecov/Coveralls URL when available -->
+  <a href="#testing">
+    <img alt="Coverage" src="https://img.shields.io/badge/coverage-in_repo_reports-lightgrey?style=flat-square">
+  </a>
+  <!-- Optional: add PyPI/Container Registry badges if you publish artifacts -->
+</p>
+
 One unified toolkit to fetch, filter, group, and serve NFL news and data—complete with automation, an API, and AI-generated summaries. This README consolidates all docs and explains how to run every feature for both non-technical and technical users.
 
 • New here? Start with Quick Start.  
@@ -8,22 +31,25 @@ One unified toolkit to fetch, filter, group, and serve NFL news and data—compl
 
 ## Table of Contents
 
-- Quick Start (5 minutes)
-- What this project does
-- At-a-glance features
-- Repository map
-- Vision, requirements, and design
-- Install and setup
-- How the scripts work
-- How to run every feature
-- Entity linking DB setup (optional)
-- Docker quick start
-- Deployment scripts (story grouping)
-- Testing
-- Troubleshooting and tips
-- Links to all docs
-- License and contributions
-- Thanks
+- [Quick Start (5 minutes)](#quick-start-5-minutes)
+- [What this project does](#what-this-project-does)
+- [At-a-glance features](#at-a-glance-features)
+- [Repository map](#repository-map-high-level)
+- [Business processes](#business-processes)
+- [Visual architecture and flow](#visual-architecture-and-flow)
+- [Vision, requirements, and design](#vision-requirements-and-design)
+- [Install and setup](#install-and-setup)
+- [Configuration](#configuration-what-to-edit-and-how-to-use-it)
+- [How the scripts work](#how-the-scripts-work-friendly-overview)
+- [How to run every feature](#how-to-run-every-feature)
+- [Entity linking DB setup (optional)](#entity-linking-db-setup-optional-but-recommended)
+- [Docker quick start](#docker-quick-start)
+- [Deployment scripts (story grouping)](#deployment-scripts-story-grouping)
+- [Testing](#testing)
+- [Troubleshooting and tips](#troubleshooting-and-tips)
+- [Links to all docs](#links-to-all-docs-one-place)
+- [License and contributions](#license-and-contributions)
+- [Thanks](#thanks)
 
 ## Quick Start (5 minutes)
 
@@ -41,12 +67,12 @@ pip install -r requirements.txt
 
 2) Dry-run a few features (no DB writes, no API keys needed)
 ```
-# List pipeline sources then dry-run
-python scripts/pipeline_cli.py list-sources --config feeds.yaml
-python scripts/pipeline_cli.py run --config feeds.yaml --dry-run --disable-llm
+# List pipeline sources then dry-run (grouped under scripts/news_ingestion)
+python scripts/news_ingestion/pipeline_cli.py list-sources --config feeds.yaml
+python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --dry-run --disable-llm
 
 # Try a data loader
-python scripts/teams_cli.py --dry-run
+python scripts/data_loaders/teams_cli.py --dry-run
 ```
 
 3) Optional: start the API
@@ -80,15 +106,39 @@ For full setup (DB + LLM), see Install and setup.
 ## Repository map (high level)
 
 ```
-api/                       # FastAPI (7 endpoints, Swagger/ReDoc)
-content_generation/        # AI generators: personal & trending summaries
-docs/                      # Reference docs (linked below)
-examples/                  # Small demos to try features
-scripts/                   # All CLIs and automation
-db/migrations/             # SQL migrations (incl. story grouping schema)
+api/                         # FastAPI (7 endpoints, Swagger/ReDoc)
+content_generation/          # AI generators: personal & trending summaries
+docs/                        # Reference docs (linked below)
+examples/                    # Small demos to try features
+scripts/
+  news_ingestion/            # Pipeline CLI + demos (README included)
+  story_grouping/            # Grouping demos, dry-run, batch, deploy (README)
+  data_loaders/              # Teams/Players/Games/Stats CLIs + stats/ (README)
+  auto_updates/              # Automated update scripts (README)
+  entity_linking/            # Entity dictionary + LLM linker (README)
+  content_generation/        # Trending detection + summaries (README)
+  ops_utilities/             # Helper and functionality checks (README)
+db/migrations/               # SQL migrations (incl. story grouping schema)
 ```
 
-For an easy first run, read docs/Getting_Started.md.
+For an easy first run, read [docs/Getting_Started.md](docs/Getting_Started.md).
+
+## Business processes
+
+This repository groups operational scripts into business processes. Each folder contains a README with purpose, usage, and guidance.
+
+- News Ingestion: Configure and run the news pipeline via scripts/news_ingestion.
+  - Start here: [scripts/news_ingestion/README.md](scripts/news_ingestion/README.md)
+- Story Grouping: Extract context, embed, and cluster via scripts/story_grouping.
+  - Details: [scripts/story_grouping/README.md](scripts/story_grouping/README.md)
+- Data Loaders: Load teams, players, games, stats via scripts/data_loaders.
+  - Overview: [scripts/data_loaders/README.md](scripts/data_loaders/README.md)
+- Auto Updates: CI-friendly updates for games and weekly stats under scripts/auto_updates.
+  - Usage: [scripts/auto_updates/README.md](scripts/auto_updates/README.md)
+- Entity Linking: Build dictionaries and link entities with or without LLM under scripts/entity_linking.
+  - Guide: [scripts/entity_linking/README.md](scripts/entity_linking/README.md)
+- Content Generation: Detect trending entities and generate summaries under scripts/content_generation.
+  - Guide: [scripts/content_generation/README.md](scripts/content_generation/README.md)
 
 ## Visual architecture and flow
 
@@ -137,19 +187,19 @@ These documents define what we’re building and how it works under the hood:
 
 Additional how-tos and deep dives:
 
-- Getting Started: docs/Getting_Started.md
-- CLI Tools Guide: docs/CLI_Tools_Guide.md
-- Automation Workflows: docs/Automation_Workflows.md
-- Auto-Update Scripts: docs/Auto_Update_Scripts.md
-- Story Grouping Integration: docs/story_grouping_integration.md
-- Story Grouping Config: docs/Story_Grouping_Configuration.md
-- API Reference: docs/API_Reference.md
-- NFL Data Reference: docs/NFL_Data_Reference.md
-- Testing Guide: docs/Testing_Guide.md
-- Technical Details: docs/Technical_Details.md
-- Troubleshooting: docs/Troubleshooting.md
-- LLM Test Coverage: docs/LLM_Test_Coverage.md
-- Story Grouping Test Summary: docs/Story_Grouping_Test_Coverage_Summary.md
+- Getting Started: [docs/Getting_Started.md](docs/Getting_Started.md)
+- CLI Tools Guide: [docs/CLI_Tools_Guide.md](docs/CLI_Tools_Guide.md)
+- Automation Workflows: [docs/Automation_Workflows.md](docs/Automation_Workflows.md)
+- Auto-Update Scripts: [docs/Auto_Update_Scripts.md](docs/Auto_Update_Scripts.md)
+- Story Grouping Integration: [docs/story_grouping_integration.md](docs/story_grouping_integration.md)
+- Story Grouping Config: [docs/Story_Grouping_Configuration.md](docs/Story_Grouping_Configuration.md)
+- API Reference: [docs/API_Reference.md](docs/API_Reference.md)
+- NFL Data Reference: [docs/NFL_Data_Reference.md](docs/NFL_Data_Reference.md)
+- Testing Guide: [docs/Testing_Guide.md](docs/Testing_Guide.md)
+- Technical Details: [docs/Technical_Details.md](docs/Technical_Details.md)
+- Troubleshooting: [docs/Troubleshooting.md](docs/Troubleshooting.md)
+- LLM Test Coverage: [docs/LLM_Test_Coverage.md](docs/LLM_Test_Coverage.md)
+- Story Grouping Test Summary: [docs/Story_Grouping_Test_Coverage_Summary.md](docs/Story_Grouping_Test_Coverage_Summary.md)
 
 ## Install and setup
 
@@ -212,7 +262,7 @@ defaults:
 
 Run with grouping on (dry run)
 ```
-python scripts/pipeline_cli.py run --config feeds.yaml --enable-story-grouping --dry-run
+python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --enable-story-grouping --dry-run
 ```
 
 Where to find a fuller example
@@ -227,34 +277,33 @@ Environment overrides
 This project is script-first: each feature is a CLI. Here’s what they do and when to use them.
 
 News pipeline and grouping
-- scripts/pipeline_cli.py: Orchestrates the news pipeline (list/validate/run/status). Can also run story grouping: group-stories, group-backfill, group-status, group-report.
-- scripts/story_grouping_dry_run.py: Run story grouping logic without writing to DB (good for demos).
-- scripts/story_grouping_batch_processor.py: Backfill older stories in batches with resume support.
-- scripts/story_grouping_cli_demo.py: Small CLI demo for grouping flows.
+- scripts/news_ingestion/pipeline_cli.py: Orchestrates the news pipeline (list/validate/run/status). Can also run story grouping: group-stories, group-backfill, group-status, group-report.
+- scripts/story_grouping/story_grouping_dry_run.py: Run story grouping logic without writing to DB (good for demos).
+- scripts/story_grouping/story_grouping_batch_processor.py: Backfill older stories in batches with resume support.
+- scripts/story_grouping/story_grouping_cli_demo.py: Small CLI demo for grouping flows.
 
 AI and entity tools
-- scripts/llm_entity_linker_cli.py: Use an LLM to extract and validate entities in articles (test, run, stats).
-- scripts/entity_dictionary_cli.py: Inspect and manage the internal entity dictionary (search, stats, export).
-- content_generation/personal_summary_generator.py: Generate personalized user updates into DB.
-- content_generation/trending_summary_generator.py: Create summaries for trending teams/players; can read from stdin for pipeline chaining.
-- scripts/trending_topic_detector.py: Detect trending entities using recent content and signals.
+- scripts/entity_linking/llm_entity_linker_cli.py: Use an LLM to extract and validate entities in articles (test, run, stats).
+- scripts/entity_linking/entity_dictionary_cli.py: Inspect and manage the internal entity dictionary (search, stats, export).
+- scripts/content_generation/trending_summary_generator.py: Create summaries for trending teams/players; can read from stdin for pipeline chaining.
+- scripts/content_generation/trending_topic_detector.py: Detect trending entities using recent content and signals.
 
 NFL data loaders and auto-updaters
-- scripts/teams_cli.py: Load teams.
-- scripts/players_cli.py: Load player rosters for seasons.
-- scripts/games_cli.py: Load schedules/results per season/week.
-- scripts/player_weekly_stats_cli.py: Load weekly player stats.
-- scripts/games_auto_update.py: Smart weekly game updater (current and next week).
-- scripts/player_weekly_stats_auto_update.py: Smart player stats updater (gaps + recent corrections).
+- scripts/data_loaders/teams_cli.py: Load teams.
+- scripts/data_loaders/players_cli.py: Load player rosters for seasons.
+- scripts/data_loaders/games_cli.py: Load schedules/results per season/week.
+- scripts/data_loaders/player_weekly_stats_cli.py: Load weekly player stats.
+- scripts/auto_updates/games_auto_update.py: Smart weekly game updater (current and next week).
+- scripts/auto_updates/player_weekly_stats_auto_update.py: Smart player stats updater (gaps + recent corrections).
 
 Utilities and demos
-- scripts/setup_entity_linking_db.py: Create indexes/structures used by entity linking.
-- scripts/news_fetch_demo.py and examples/*: Simple demos to see parts of the system in action.
-- scripts/live_story_context_test.py: Quick test of URL-context capabilities.
+- scripts/entity_linking/setup_entity_linking_db.py: Create indexes/structures used by entity linking.
+- scripts/news_ingestion/news_fetch_demo.py and examples/*: Simple demos to see parts of the system in action.
+- scripts/story_grouping/live_story_context_test.py: Quick test of URL-context capabilities.
 
 Deployment helpers
-- scripts/deploy_story_grouping.py: Validate/setup/configure story grouping end-to-end (validate, setup, config, test, deploy).
-- scripts/deploy_story_grouping.sh: Shell wrapper to validate environment and deploy with flags.
+- scripts/story_grouping/deploy_story_grouping.py: Validate/setup/configure story grouping end-to-end (validate, setup, config, test, deploy).
+- scripts/story_grouping/deploy_story_grouping.sh: Shell wrapper to validate environment and deploy with flags.
 
 Database migrations
 - db/migrations/002_story_grouping_schema.sql: Schema for story embeddings, groups, and membership. Apply in Supabase SQL editor if you plan to use story grouping in production.
@@ -267,19 +316,19 @@ Add --dry-run to preview without writing to DB.
 
 ```
 # List configured sources
-python scripts/pipeline_cli.py list-sources --config feeds.yaml
+python scripts/news_ingestion/pipeline_cli.py list-sources --config feeds.yaml
 
 # Validate config
-python scripts/pipeline_cli.py validate --config feeds.yaml
+python scripts/news_ingestion/pipeline_cli.py validate --config feeds.yaml
 
 # Dry run all sources (no DB writes, no LLM)
-python scripts/pipeline_cli.py run --config feeds.yaml --dry-run --disable-llm
+python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --dry-run --disable-llm
 
 # Run a single source (writes to DB if .env set)
-python scripts/pipeline_cli.py run --config feeds.yaml --source espn
+python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --source espn
 
 # Status and health
-python scripts/pipeline_cli.py status --config feeds.yaml
+python scripts/news_ingestion/pipeline_cli.py status --config feeds.yaml
 ```
 
 2) Story Grouping (semantic clustering of similar stories)
@@ -302,30 +351,30 @@ Run it
 
 ```
 # Run pipeline with grouping
-python scripts/pipeline_cli.py run --enable-story-grouping --dry-run
+python scripts/news_ingestion/pipeline_cli.py run --enable-story-grouping --dry-run
 
 # Manual grouping of recent items
-python scripts/pipeline_cli.py group-stories --max-stories 50 --dry-run
+python scripts/news_ingestion/pipeline_cli.py group-stories --max-stories 50 --dry-run
 
 # Backfill at scale
-python scripts/pipeline_cli.py group-backfill --batch-size 25 --dry-run
+python scripts/news_ingestion/pipeline_cli.py group-backfill --batch-size 25 --dry-run
 
 # Status and report
-python scripts/pipeline_cli.py group-status
-python scripts/pipeline_cli.py group-report --format json
+python scripts/news_ingestion/pipeline_cli.py group-status
+python scripts/news_ingestion/pipeline_cli.py group-report --format json
 ```
 
 3) LLM Entity Linking (players/teams from text)
 
 ```
 # Quick test
-python scripts/llm_entity_linker_cli.py test --text "Patrick Mahomes shines as Chiefs beat 49ers"
+python scripts/entity_linking/llm_entity_linker_cli.py test --text "Patrick Mahomes shines as Chiefs beat 49ers"
 
 # Process unlinked articles in batches
-python scripts/llm_entity_linker_cli.py run --batch-size 20 --max-batches 5
+python scripts/entity_linking/llm_entity_linker_cli.py run --batch-size 20 --max-batches 5
 
 # Stats
-python scripts/llm_entity_linker_cli.py stats
+python scripts/entity_linking/llm_entity_linker_cli.py stats
 ```
 
 Recommended DB helper: in Supabase SQL editor, add a function to fetch unlinked articles efficiently. See the “Manual DB function” snippet in this README under “Entity linking DB setup.”
@@ -336,13 +385,13 @@ Trending summaries
 
 ```
 # Detect trending entities
-python scripts/trending_topic_detector.py --hours 168 --top-n 5
+python scripts/content_generation/trending_topic_detector.py --hours 168 --top-n 5
 
 # Generate summaries (direct)
 python content_generation/trending_summary_generator.py --entity-ids "KC,00-0033873" --dry-run
 
 # Pipeline (detector → generator)
-python scripts/trending_topic_detector.py --entity-ids-only | \
+python scripts/content_generation/trending_topic_detector.py --entity-ids-only | \
     python content_generation/trending_summary_generator.py --from-stdin
 ```
 
@@ -356,27 +405,27 @@ python content_generation/personal_summary_generator.py
 
 ```
 # Teams
-python scripts/teams_cli.py --dry-run
+python scripts/data_loaders/teams_cli.py --dry-run
 
 # Players (one or more seasons)
-python scripts/players_cli.py 2024 --dry-run
+python scripts/data_loaders/players_cli.py 2024 --dry-run
 
 # Games (season or a specific week)
-python scripts/games_cli.py 2024 --dry-run
-python scripts/games_cli.py 2024 --week 1 --dry-run
+python scripts/data_loaders/games_cli.py 2024 --dry-run
+python scripts/data_loaders/games_cli.py 2024 --week 1 --dry-run
 
 # Player weekly stats
-python scripts/player_weekly_stats_cli.py 2024 --weeks 1 2 3 --dry-run
+python scripts/data_loaders/player_weekly_stats_cli.py 2024 --weeks 1 2 3 --dry-run
 ```
 
 6) Smart Auto-Update (for CI and ops)
 
 ```
 # Games: upsert current week + insert next week
-python scripts/games_auto_update.py
+python scripts/auto_updates/games_auto_update.py
 
 # Player stats: fill gaps + update recent corrections
-python scripts/player_weekly_stats_auto_update.py
+python scripts/auto_updates/player_weekly_stats_auto_update.py
 ```
 
 7) FastAPI (users and preferences)
@@ -462,7 +511,7 @@ $$ LANGUAGE plpgsql;
 
 ```
 docker build -t t4lapis-app .
-docker run --rm --env-file .env t4lapis-app python scripts/teams_cli.py --dry-run
+docker run --rm --env-file .env t4lapis-app python scripts/data_loaders/teams_cli.py --dry-run
 ```
 
 ## Deployment scripts (story grouping)
@@ -470,17 +519,17 @@ docker run --rm --env-file .env t4lapis-app python scripts/teams_cli.py --dry-ru
 Python-based deployment and validation
 
 ```
-python scripts/deploy_story_grouping.py validate --verbose
-python scripts/deploy_story_grouping.py setup
-python scripts/deploy_story_grouping.py test
-python scripts/deploy_story_grouping.py config --config-path=story_grouping_config.yaml
+python scripts/story_grouping/deploy_story_grouping.py validate --verbose
+python scripts/story_grouping/deploy_story_grouping.py setup
+python scripts/story_grouping/deploy_story_grouping.py test
+python scripts/story_grouping/deploy_story_grouping.py config --config-path=story_grouping_config.yaml
 ```
 
 Shell-based convenience (validation and deploy flags)
 
 ```
-./scripts/deploy_story_grouping.sh --dry-run
-./scripts/deploy_story_grouping.sh --environment=prod
+./scripts/story_grouping/deploy_story_grouping.sh --dry-run
+./scripts/story_grouping/deploy_story_grouping.sh --environment=prod
 ```
 
 ## Testing
@@ -521,25 +570,25 @@ More: docs/Troubleshooting.md
 
 ## Links to all docs (one place)
 
-- Configuration Guide: docs/Configuration.md
-- Getting Started: docs/Getting_Started.md
-- CLI Tools Guide: docs/CLI_Tools_Guide.md
-- Auto-Update Scripts: docs/Auto_Update_Scripts.md
-- Story Grouping Integration: docs/story_grouping_integration.md
-- Story Grouping Configuration: docs/Story_Grouping_Configuration.md
-- API Reference: docs/API_Reference.md
-- NFL Data Reference: docs/NFL_Data_Reference.md
-- Automation Workflows: docs/Automation_Workflows.md
-- Testing Guide: docs/Testing_Guide.md
-- Monitoring Guide: docs/Monitoring_Guide.md
-- Technical Details: docs/Technical_Details.md
-- Troubleshooting: docs/Troubleshooting.md
-- LLM Test Coverage: docs/LLM_Test_Coverage.md
-- Story Grouping Test Summary: docs/Story_Grouping_Test_Coverage_Summary.md
-- Requirements (News pipeline): docs/specs/nfl-news-pipeline/requirements.md
-- Design (News pipeline): docs/specs/nfl-news-pipeline/design.md
-- Requirements (Story grouping): docs/specs/story-similarity-grouping/requirements.md
-- Design (Story grouping): docs/specs/story-similarity-grouping/design.md
+- Configuration Guide: [docs/Configuration.md](docs/Configuration.md)
+- Getting Started: [docs/Getting_Started.md](docs/Getting_Started.md)
+- CLI Tools Guide: [docs/CLI_Tools_Guide.md](docs/CLI_Tools_Guide.md)
+- Auto-Update Scripts: [docs/Auto_Update_Scripts.md](docs/Auto_Update_Scripts.md)
+- Story Grouping Integration: [docs/story_grouping_integration.md](docs/story_grouping_integration.md)
+- Story Grouping Configuration: [docs/Story_Grouping_Configuration.md](docs/Story_Grouping_Configuration.md)
+- API Reference: [docs/API_Reference.md](docs/API_Reference.md)
+- NFL Data Reference: [docs/NFL_Data_Reference.md](docs/NFL_Data_Reference.md)
+- Automation Workflows: [docs/Automation_Workflows.md](docs/Automation_Workflows.md)
+- Testing Guide: [docs/Testing_Guide.md](docs/Testing_Guide.md)
+- Monitoring Guide: [docs/Monitoring_Guide.md](docs/Monitoring_Guide.md)
+- Technical Details: [docs/Technical_Details.md](docs/Technical_Details.md)
+- Troubleshooting: [docs/Troubleshooting.md](docs/Troubleshooting.md)
+- LLM Test Coverage: [docs/LLM_Test_Coverage.md](docs/LLM_Test_Coverage.md)
+- Story Grouping Test Summary: [docs/Story_Grouping_Test_Coverage_Summary.md](docs/Story_Grouping_Test_Coverage_Summary.md)
+- Requirements (News pipeline): [docs/specs/nfl-news-pipeline/requirements.md](docs/specs/nfl-news-pipeline/requirements.md)
+- Design (News pipeline): [docs/specs/nfl-news-pipeline/design.md](docs/specs/nfl-news-pipeline/design.md)
+- Requirements (Story grouping): [docs/specs/story-similarity-grouping/requirements.md](docs/specs/story-similarity-grouping/requirements.md)
+- Design (Story grouping): [docs/specs/story-similarity-grouping/design.md](docs/specs/story-similarity-grouping/design.md)
 
 Archived summaries: docs/archive/
 
@@ -550,6 +599,3 @@ MIT License (see LICENSE). PRs welcome—please include tests when changing publ
 ## Thanks
 
 - nfl_data_py, Supabase, and the broader NFL analytics community.
-
-If you get stuck, open an issue or browse the docs linked above.
-

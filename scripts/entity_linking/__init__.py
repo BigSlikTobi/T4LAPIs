@@ -1,0 +1,2 @@
+"""Entity linking scripts package."""
+
