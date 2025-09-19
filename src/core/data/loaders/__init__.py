@@ -15,7 +15,6 @@ from .ngs import NextGenStatsDataLoader
 from .snap_counts import SnapCountsDataLoader
 
 # Phase B: Roster/Personnel Context
-from .rosters import RostersDataLoader
 from .depth_charts import DepthChartsDataLoader
 from .contracts import ContractsDataLoader
 from .combine import CombineDataLoader
@@ -39,7 +38,6 @@ __all__ = [
     'NextGenStatsDataLoader',
     'SnapCountsDataLoader',
     # Phase B: Roster/Personnel Context
-    'RostersDataLoader',
     'DepthChartsDataLoader',
     'ContractsDataLoader',
     'CombineDataLoader',

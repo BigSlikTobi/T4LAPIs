@@ -25,11 +25,8 @@
 - Run `python -m pytest -q` before pushing and capture notable command output in PRs when behavior shifts.
 
 ## Commit & Pull Request Guidelines
-- Start every piece of work by creating a dedicated feature branch; never develop directly on `main`.
 - Mirror git history: imperative subject, optional scope, PR number on merge (e.g., `Fix story grouping gating logic (#55)`).
 - Keep commits focused and note schema or config implications in the body.
-- When the branch is ready, open a detailed pull request summarizing changes, validation steps, and any follow-ups.
-- Do not push commits straight to `main`; all changes flow through reviewed pull requests.
 - PRs should explain motivation, list validation commands (pytest, CLI dry-runs, API smoke checks), link relevant docs, and attach payload samples when responses change; call out new env vars.
 
 ## Configuration & Secrets
