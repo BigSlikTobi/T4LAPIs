@@ -17,7 +17,14 @@ from typing import List
 import numpy as np
 
 # Ensure the project's src/ directory is importable when running as a script.
-REPO_ROOT = Path(__file__).resolve().parents[2]
+def _repo_root() -> Path:
+    start = Path(__file__).resolve()
+    for p in [start] + list(start.parents):
+        if (p / 'src').exists() and (p / 'README.md').exists():
+            return p
+    return start.parents[0]
+
+REPO_ROOT = _repo_root()
 SRC_PATH = REPO_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))

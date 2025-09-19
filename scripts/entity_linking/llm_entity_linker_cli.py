@@ -21,10 +21,19 @@ import sys
 import os
 import time
 from typing import Dict, List, Any
+from pathlib import Path
 
-# Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add src to path for imports (robust to nesting)
+def _repo_root() -> str:
+    start = Path(__file__).resolve()
+    for p in [start] + list(start.parents):
+        if (p / 'src').exists() and (p / 'README.md').exists():
+            return str(p)
+    return str(start.parents[0])
+
+project_root = _repo_root()
+sys.path.insert(0, os.path.join(project_root, 'src'))
+sys.path.insert(0, project_root)
 
 from scripts.llm_entity_linker import LLMEntityLinker
 from src.core.llm.llm_init import get_deepseek_client

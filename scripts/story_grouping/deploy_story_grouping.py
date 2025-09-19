@@ -43,18 +43,26 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-# Add project root to Python path
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
+# Ensure repository root is on sys.path regardless of nesting
+def _repo_root() -> Path:
+    start = Path(__file__).resolve()
+    for p in [start] + list(start.parents):
+        if (p / "src").exists() and (p / "README.md").exists():
+            return p
+    return start.parents[0]
+
+REPO_ROOT = _repo_root()
+sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "src"))
 
 try:
-    from nfl_news_pipeline.story_grouping_config import (
+    from src.nfl_news_pipeline.story_grouping_config import (
         StoryGroupingConfigManager,
         StoryGroupingConfig,
         StoryGroupingConfigError,
     )
     # Use centralized Supabase client from core package
-    from core.db.database_init import get_supabase_client
+    from src.core.db.database_init import get_supabase_client
 except ImportError as e:
     print(f"Error importing story grouping modules: {e}")
     print("Please ensure all dependencies are installed: pip install -r requirements.txt")

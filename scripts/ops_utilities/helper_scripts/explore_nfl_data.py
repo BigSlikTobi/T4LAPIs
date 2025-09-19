@@ -6,12 +6,21 @@ This will help understand the complete data structure available.
 
 import sys
 import os
+from pathlib import Path
 import logging
 import pandas as pd
 import traceback
 
-# Add the project root to the Python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Add the project root to the Python path (robust to nesting)
+def _repo_root() -> str:
+    start = Path(__file__).resolve()
+    for p in [start] + list(start.parents):
+        if (p / 'src').exists() and (p / 'README.md').exists():
+            return str(p)
+    return str(start.parents[0])
+
+project_root = _repo_root()
+sys.path.insert(0, project_root)
 
 try:
     import nfl_data_py as nfl

@@ -19,8 +19,15 @@ from typing import List, Tuple, Dict, Any
 import time
 from dotenv import load_dotenv
 
-# Make sure repo root is on sys.path so 'src' package resolves when running from scripts/
-ROOT = Path(__file__).resolve().parents[1]
+# Make sure repo root is on sys.path so 'src' package resolves when running from nested folders
+def _repo_root() -> Path:
+    start = Path(__file__).resolve()
+    for p in [start] + list(start.parents):
+        if (p / "src").exists() and (p / "README.md").exists():
+            return p
+    return start.parents[0]
+
+ROOT = _repo_root()
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 

@@ -15,8 +15,18 @@ import uuid
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pathlib import Path
+
+def _repo_root() -> str:
+    start = Path(__file__).resolve()
+    for p in [start] + list(start.parents):
+        if (p / 'src').exists() and (p / 'README.md').exists():
+            return str(p)
+    return str(start.parents[0])
+
+project_root = _repo_root()
+sys.path.insert(0, os.path.join(project_root, 'src'))
+sys.path.insert(0, project_root)
 
 from src.core.utils.database import DatabaseManager
 from src.core.data.entity_linking import build_entity_dictionary

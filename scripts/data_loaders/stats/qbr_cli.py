@@ -6,8 +6,16 @@ Supports week and player filters with sensible defaults.
 
 import sys
 import os
+from pathlib import Path
 
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+def _repo_root() -> str:
+    start = Path(__file__).resolve()
+    for p in [start] + list(start.parents):
+        if (p / 'src').exists() and (p / 'README.md').exists():
+            return str(p)
+    return str(start.parents[0])
+
+project_root = _repo_root()
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 

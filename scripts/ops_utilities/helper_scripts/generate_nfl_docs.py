@@ -6,13 +6,21 @@ documenting all NFL data tables and columns.
 
 import sys
 import os
+from pathlib import Path
 import logging
 import pandas as pd
 import json
 from datetime import datetime
 
 # Add the project root to the Python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+def _repo_root() -> str:
+    start = Path(__file__).resolve()
+    for p in [start] + list(start.parents):
+        if (p / 'src').exists() and (p / 'README.md').exists():
+            return str(p)
+    return str(start.parents[0])
+
+sys.path.insert(0, _repo_root())
 
 try:
     import nfl_data_py as nfl

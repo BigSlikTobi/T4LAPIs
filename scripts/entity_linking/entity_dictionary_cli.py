@@ -11,9 +11,17 @@ import argparse
 import json
 from typing import Dict, Any
 import os
+from pathlib import Path
 
-# Add the project root to the path
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Add the project root to the path (robust to nesting)
+def _repo_root() -> str:
+    start = Path(__file__).resolve()
+    for p in [start] + list(start.parents):
+        if (p / 'src').exists() and (p / 'README.md').exists():
+            return str(p)
+    return str(start.parents[0])
+
+project_root = _repo_root()
 sys.path.insert(0, project_root)
 
 from src.core.data.entity_linking import build_entity_dictionary

@@ -22,8 +22,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-# Add project root to path
-ROOT = Path(__file__).resolve().parents[1]
+# Add project root to path (robust to nesting)
+def _repo_root() -> Path:
+    start = Path(__file__).resolve()
+    for p in [start] + list(start.parents):
+        if (p / "src").exists() and (p / "README.md").exists():
+            return p
+    return start.parents[0]
+
+ROOT = _repo_root()
 sys.path.insert(0, str(ROOT))
 
 # Configure logging

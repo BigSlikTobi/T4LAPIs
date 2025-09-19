@@ -7,9 +7,17 @@ NOTE: PBP is only available until season 2024 in nfl_data_py. For 2025+, we need
 
 import sys
 import os
+from pathlib import Path
 
-# Add project root to path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+# Add project root to path (robust to nesting)
+def _repo_root() -> str:
+    start = Path(__file__).resolve()
+    for p in [start] + list(start.parents):
+        if (p / 'src').exists() and (p / 'README.md').exists():
+            return str(p)
+    return str(start.parents[0])
+
+project_root = _repo_root()
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 

@@ -25,6 +25,7 @@ Usage:
 
 import os
 import sys
+from pathlib import Path
 import logging
 import argparse
 import uuid
@@ -33,8 +34,15 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
-# Add project root to path for imports
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Add project root to path for imports (robust to nesting)
+def _repo_root() -> str:
+    start = Path(__file__).resolve()
+    for p in [start] + list(start.parents):
+        if (p / 'src').exists() and (p / 'README.md').exists():
+            return str(p)
+    return str(start.parents[0])
+
+project_root = _repo_root()
 sys.path.insert(0, project_root)
 
 from src.core.utils.database import DatabaseManager

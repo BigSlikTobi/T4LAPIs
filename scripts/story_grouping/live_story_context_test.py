@@ -11,8 +11,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-# Ensure repository root is on sys.path when run from scripts/ directory
-ROOT_DIR = Path(__file__).resolve().parents[1]
+# Ensure repository root is on sys.path when run from nested directories
+def _repo_root() -> Path:
+    start = Path(__file__).resolve()
+    for p in [start] + list(start.parents):
+        if (p / "src").exists() and (p / "README.md").exists():
+            return p
+    return start.parents[0]
+
+ROOT_DIR = _repo_root()
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
