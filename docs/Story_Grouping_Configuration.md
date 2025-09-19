@@ -164,6 +164,17 @@ MAX_PARALLEL_WORKERS=4
 
 # Development Settings
 DEBUG=true
+
+# Database table names (canonical; used across storage helpers and CLIs)
+# Update your frontend to use these names as-is, or expose NEXT_PUBLIC_* mappings
+CONTEXT_SUMMARIES_TABLE=context_summaries
+STORY_EMBEDDINGS_TABLE=story_embeddings
+STORY_GROUPS_TABLE=story_groups
+STORY_GROUP_MEMBERS_TABLE=story_group_members
+NEWS_URLS_TABLE=news_urls
+
+# URL context provider default (can be overridden per-run)
+URL_CONTEXT_PROVIDER=google
 ```
 
 ### Environment Setup

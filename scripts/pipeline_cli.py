@@ -10,7 +10,24 @@ tests (e.g., `_build_storage`, `_build_story_grouping_orchestrator`,
 from __future__ import annotations
 
 import importlib
+import sys
+from pathlib import Path
 from typing import Optional, List
+
+
+# Ensure repo root is on sys.path so absolute imports like `scripts.*` resolve
+def _repo_root() -> Path:
+    start = Path(__file__).resolve()
+    for p in [start] + list(start.parents):
+        if (p / "src").exists() and (p / "README.md").exists():
+            return p
+    # Fallback to the parent of this file's directory
+    return start.parents[1]
+
+
+ROOT = _repo_root()
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 _impl = importlib.import_module("scripts.news_ingestion.pipeline_cli")
 
@@ -112,3 +129,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         if _name in globals():
             setattr(_impl, _name, globals()[_name])
     return _impl.main(argv)
+
+
+if __name__ == "__main__":
+    # Allow running this shim directly as a script
+    _sync_patchables_into_impl()
+    sys.exit(_impl.main(None))

@@ -40,6 +40,9 @@ class OpenAIEntityExtractor:
         )
         user = f"Article:\n'''{article_text.strip()}'''\n\nJSON Output:"
 
+        is_gpt5 = self.model.lower().startswith("gpt-5")
+        token_param = "max_completion_tokens" if is_gpt5 else "max_tokens"
+
         for _ in range(max_retries):
             try:
                 try:
@@ -49,9 +52,9 @@ class OpenAIEntityExtractor:
                             {"role": "system", "content": system},
                             {"role": "user", "content": user},
                         ],
-                        max_tokens=600,
-                        temperature=0.1,
+                        temperature=1.0 if is_gpt5 else 0.1,
                         timeout=self.timeout_s,
+                        **{token_param: 600},
                     )
                 except TypeError:
                     # Some mock clients don't accept timeout
@@ -61,8 +64,8 @@ class OpenAIEntityExtractor:
                             {"role": "system", "content": system},
                             {"role": "user", "content": user},
                         ],
-                        max_tokens=600,
-                        temperature=0.1,
+                        temperature=1.0 if is_gpt5 else 0.1,
+                        **{token_param: 600},
                     )
 
                 content = (resp.choices[0].message.content or "").strip()
@@ -105,9 +108,9 @@ class OpenAIEntityExtractor:
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
                     ],
-                    max_tokens=200,
-                    temperature=0.1,
+                    temperature=1.0 if is_gpt5 else 0.1,
                     timeout=self.timeout_s,
+                    **{token_param: 200},
                 )
                 content = (resp.choices[0].message.content or "").strip()
                 m = re.search(r"\{.*\}", content, re.S)

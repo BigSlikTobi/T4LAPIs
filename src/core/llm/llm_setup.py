@@ -110,14 +110,13 @@ def _initialize_deepseek(model_type: str = "chat", api_key: Optional[str] = None
     }
 
 
-def generate_content_with_model(model_config: Dict[str, Any], messages: list, temperature: float = 0.1, max_tokens: int = 1000) -> str:
+def generate_content_with_model(model_config: Dict[str, Any], messages: list, temperature: float = 0.1) -> str:
     """Generate content using the configured model.
     
     Args:
         model_config: Model configuration returned by initialize_model
         messages: List of message dictionaries with 'role' and 'content'
         temperature: Sampling temperature
-        max_tokens: Maximum tokens to generate
         
     Returns:
         Generated content as string
@@ -125,9 +124,9 @@ def generate_content_with_model(model_config: Dict[str, Any], messages: list, te
     logger = logging.getLogger(__name__)
     
     if model_config["provider"] == "gemini":
-        return _generate_gemini_content(model_config, messages, temperature, max_tokens, logger)
+        return _generate_gemini_content(model_config, messages, temperature, logger)
     elif model_config["provider"] == "deepseek":
-        return _generate_deepseek_content(model_config, messages, temperature, max_tokens, logger)
+        return _generate_deepseek_content(model_config, messages, temperature, logger)
     else:
         raise ValueError(f"Unsupported provider: {model_config['provider']}")
 
@@ -263,7 +262,6 @@ class DeepSeekLLM:
                         }
                     ],
                     temperature=0.1,  # Low temperature for consistent results
-                    max_tokens=1000,  # Reasonable limit for entity lists
                     stream=False
                 )
                 
@@ -408,7 +406,6 @@ class DeepSeekLLM:
                     {"role": "system", "content": "You are a helpful assistant"},
                     {"role": "user", "content": "Hello, this is a connection test. Please respond with 'Connection successful'."}
                 ],
-                max_tokens=10,
                 stream=False
             )
             
@@ -458,7 +455,7 @@ if __name__ == "__main__":
         ]
         
         print("\nTesting DeepSeek content generation...")
-        response = generate_content_with_model(deepseek_config, test_messages, temperature=0.1, max_tokens=50)
+        response = generate_content_with_model(deepseek_config, test_messages, temperature=0.1)
         print(f"  ✅ DeepSeek Response: {response}")
         
     except Exception as e:

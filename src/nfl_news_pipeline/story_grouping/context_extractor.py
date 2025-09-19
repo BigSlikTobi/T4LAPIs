@@ -98,7 +98,7 @@ class URLContextExtractor:
         self,
         openai_api_key: Optional[str] = None,
         google_api_key: Optional[str] = None,
-        preferred_provider: str = "openai",
+        preferred_provider: Optional[str] = None,
         cache: Optional[ContextCache] = None,
         enable_caching: bool = True,
         verbose: bool = False,
@@ -112,7 +112,12 @@ class URLContextExtractor:
             cache: ContextCache instance for caching summaries
             enable_caching: Enable caching of context summaries
         """
-        self.preferred_provider = preferred_provider.lower()
+        env_provider = os.getenv("URL_CONTEXT_PROVIDER") or os.getenv("NEWS_PIPELINE_URL_CONTEXT_PROVIDER")
+        provider = (preferred_provider or env_provider or "openai").lower().strip()
+        if provider not in {"openai", "google"}:
+            logger.warning("Unknown URL context provider '%s'; defaulting to OpenAI", provider)
+            provider = "openai"
+        self.preferred_provider = provider
         self.cache = cache
         self.enable_caching = enable_caching
         self.verbose = verbose
@@ -263,7 +268,13 @@ class URLContextExtractor:
                 if result:
                     return result
         
-        return None
+        fallback = self._build_metadata_summary(news_item, news_item.url)
+        if fallback:
+            logger.debug(
+                "Using metadata fallback context for %s after empty OpenAI responses",
+                news_item.url,
+            )
+        return fallback
     
     async def _extract_with_openai(self, news_item: ProcessedNewsItem) -> Optional[ContextSummary]:
         """Extract context using OpenAI gpt-5-nano.
@@ -284,6 +295,9 @@ class URLContextExtractor:
         max_attempts = 3
         base_delay = 0.5
 
+        is_gpt5 = model_name.lower().startswith("gpt-5")
+        token_param = "max_completion_tokens" if is_gpt5 else "max_tokens"
+
         for attempt in range(max_attempts):
             try:
                 params: Dict[str, Any] = {
@@ -299,10 +313,12 @@ class URLContextExtractor:
                         },
                     ],
                     "timeout": 30,
-                    # Tests expect explicit temperature and max_tokens to be provided
-                    "temperature": 0.1,
-                    "max_tokens": 500,
                 }
+                if is_gpt5:
+                    params["temperature"] = 1.0
+                else:
+                    params["temperature"] = 0.1
+                params[token_param] = 500
                 response = self.openai_client.chat.completions.create(**params)
             except Exception as e:
                 if attempt == max_attempts - 1:
@@ -438,14 +454,15 @@ class URLContextExtractor:
         try:
             prompt = self._create_llm_prompt(news_item)
             
-            response = self.google_client.generate_content(
-                prompt,
-                tools=[{"url_context": {}}],
-                generation_config={
-                    "temperature": 0.1,
-                    "max_output_tokens": 500,
-                }
-            )
+            generation_config = {
+                "temperature": 0.1,
+                "max_output_tokens": 1000,
+            }
+            try:
+                response = self.google_client.generate_content(prompt, generation_config=generation_config)
+            except TypeError:
+                # Some clients expect positional parameters only
+                response = self.google_client.generate_content(prompt)
             # Log URL context metadata when available for observability
             metadata = None
             try:
@@ -504,9 +521,10 @@ class URLContextExtractor:
         1. Use full team names (e.g., "Kansas City Chiefs", not "Chiefs")
         2. Use complete player names when possible
         3. Include key story categories (injury, trade, performance, etc.)
-        4. Keep summary concise but informative (2-3 sentences)
-        5. Extract key topics/themes for categorization
-        6. Identify main entities (players, teams, coaches)
+        4. Keep summary complete and get as much context as possible
+        5. Don't invent any details or add info not present in the URL content or metadata.
+        6. Extract key topics/themes for categorization
+        7. Identify main entities (players, teams, coaches)
 
         RESPONSE FORMAT (JSON format only):
         {{
