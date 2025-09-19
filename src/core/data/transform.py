@@ -456,225 +456,86 @@ class PlayerDataTransformer(BaseDataTransformer):
 
 
 class RosterDataTransformer(BaseDataTransformer):
-    """Transform seasonal roster data into Supabase Rosters records."""
+    """Transform seasonal roster data into simple team/player pairs."""
 
-    def __init__(self, team_mapping: Dict[str, int], version: int):
+    def __init__(self) -> None:
         super().__init__()
-        self.team_mapping = {str(k).upper(): v for k, v in team_mapping.items() if k is not None}
-        self.version = int(version)
         self.skipped_records: List[Dict[str, Any]] = []
 
     def _get_required_columns(self) -> List[str]:
-        return ["player_name", "position", "team"]
+        return ["team", "player_id"]
 
     def _transform_single_record(self, row: pd.Series) -> Optional[Dict[str, Any]]:
-        player_name = self._safe_str(row.get("player_name"), default="Unknown Player")
-        position = self._safe_str(row.get("position"), default="UNK").upper()
-        team_raw = self._safe_str(row.get("team"))
+        player_id = self._safe_str(row.get("player_id"))
+        team_code = self._safe_str(row.get("team"))
 
-        team_id = self._lookup_team_id(team_raw)
-        if team_id is None:
-            self._record_skip("team_fk_not_found", player_name, team_raw)
+        if not player_id:
+            self._record_skip("missing_player", row)
             return None
 
-        jersey_number = self._safe_int(row.get("jersey_number"))
-        age = self._safe_int(row.get("age"))
-        weight = self._safe_int(row.get("weight"))
-        years_exp = self._safe_int(row.get("years_exp"))
-
-        slug = self._build_slug(position, player_name, team_raw or "", jersey_number)
-        if slug is None:
-            self._record_skip("slug_generation_failed", player_name, team_raw)
+        team_abbr = normalize_team_abbr(team_code)
+        if not team_abbr:
+            self._record_skip("invalid_team", row)
             return None
 
-        transformed = {
-            "slug": slug,
-            "position": position or "UNK",
-            "status": self._safe_optional_str(row.get("status")),
-            "number": jersey_number,
-            "height": self._safe_height(row.get("height")),
-            "weight": weight,
-            "name": player_name,
-            "college": self._safe_optional_str(row.get("college")),
-            "headshotURL": self._safe_optional_str(row.get("headshot_url")),
-            "age": age,
-            "years_exp": years_exp,
-            "teamId": team_id,
-            "version": self.version,
-        }
-
-        return transformed
+        return {"team": team_abbr, "player": player_id}
 
     def _validate_record(self, record: Dict[str, Any]) -> bool:
-        try:
-            required_fields = ["slug", "name", "teamId", "version"]
-            for field in required_fields:
-                if field not in record or record[field] in (None, ""):
-                    self.logger.warning(f"Roster record missing required field '{field}': {record}")
-                    return False
+        team = record.get("team")
+        player = record.get("player")
 
-            if len(record["slug"]) > 255:
-                self.logger.warning(f"Slug exceeds 255 characters: {record['slug']}")
-                return False
-
-            if not isinstance(record["teamId"], int):
-                self.logger.warning(f"teamId must be int, got {record['teamId']!r}")
-                return False
-
-            if not isinstance(record["version"], int) or record["version"] < 0:
-                self.logger.warning(f"Invalid version value: {record['version']}")
-                return False
-
-            return True
-        except Exception as exc:
-            self.logger.error(f"Error validating roster record: {exc}")
+        if not team or not isinstance(team, str):
+            self.logger.warning(f"Roster record missing team: {record}")
             return False
+        if not player or not isinstance(player, str):
+            self.logger.warning(f"Roster record missing player: {record}")
+            return False
+        return True
 
     def _sanitize_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
         sanitized = super()._sanitize_record(record)
-
-        if sanitized.get("position"):
-            sanitized["position"] = sanitized["position"].upper()
-
-        if sanitized.get("name"):
-            sanitized["name"] = sanitized["name"].strip()
-
+        if sanitized.get("team"):
+            sanitized["team"] = sanitized["team"].upper()
+        if sanitized.get("player"):
+            sanitized["player"] = sanitized["player"].strip()
         return sanitized
 
-    # ----- Helper methods -----
+    def _deduplicate_records(self, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        seen: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        for record in records:
+            team = record.get("team")
+            player = record.get("player")
+            if not team or not player:
+                continue
 
-    def _lookup_team_id(self, team_raw: Optional[str]) -> Optional[int]:
-        if not team_raw:
-            return None
+            key = (team, player)
+            if key in seen:
+                self.skipped_records.append(
+                    {
+                        "reason": "duplicate_pair",
+                        "team": team,
+                        "player": player,
+                    }
+                )
+                continue
+            seen[key] = record
+        return list(seen.values())
 
-        candidates: List[str] = []
-        normalized = normalize_team_abbr(team_raw)
-        if normalized:
-            candidates.append(normalized.upper())
-
-        team_upper = str(team_raw).upper()
-        if team_upper not in candidates:
-            candidates.append(team_upper)
-
-        historical_map = {"LA": "LAR", "JAC": "JAX"}
-        if team_upper in historical_map:
-            mapped = historical_map[team_upper]
-            if mapped not in candidates:
-                candidates.append(mapped)
-
-        for candidate in candidates:
-            team_id = self.team_mapping.get(candidate)
-            if team_id is not None:
-                return int(team_id)
-
-        return None
-
-    def _build_slug(
-        self,
-        position: str,
-        player_name: str,
-        team_abbr: str,
-        jersey_number: Optional[int],
-    ) -> Optional[str]:
-        jersey_component = str(jersey_number) if jersey_number is not None else "na"
-        slug_source = f"{position}-{player_name}-{team_abbr}-{jersey_component}".lower()
-        slug = re.sub(r"[^a-z0-9-]+", "-", slug_source)
-        slug = re.sub(r"-+", "-", slug).strip("-")
-        if not slug:
-            return None
-        return slug[:255]
-
-    def _safe_str(self, value: Any, *, default: str = "") -> str:
+    def _safe_str(self, value: Any, default: str = "") -> str:
         if pd.isna(value) or value is None:
             return default
         text = str(value).strip()
-        return text or default
+        return text
 
-    def _safe_optional_str(self, value: Any) -> Optional[str]:
-        text = self._safe_str(value, default="").strip()
-        return text or None
-
-    def _safe_int(self, value: Any) -> Optional[int]:
-        if pd.isna(value) or value is None:
-            return None
-        try:
-            intval = int(float(value))
-            return intval
-        except (ValueError, TypeError):
-            return None
-
-    def _safe_height(self, value: Any) -> Optional[Any]:
-        if pd.isna(value) or value is None:
-            return None
-        return value
-
-    def _record_skip(self, reason: str, player_name: str, team: Optional[str]) -> None:
-            self.skipped_records.append(
-                {
-                    "reason": reason,
-                    "player_name": player_name,
-                    "team": team,
-                }
-            )
-
-    def _deduplicate_records(self, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        if not records:
-            return records
-
-        unique: Dict[str, Dict[str, Any]] = {}
-
-        for record in records:
-            slug = record.get("slug")
-            if not slug:
-                continue
-
-            existing = unique.get(slug)
-            if existing is None:
-                unique[slug] = record
-                continue
-
-            preferred, discarded = self._select_preferred_record(existing, record)
-            if preferred is not existing:
-                unique[slug] = preferred
-                discarded_entry = existing
-            else:
-                discarded_entry = record
-
-            self.skipped_records.append(
-                {
-                    "reason": "duplicate_slug",
-                    "slug": slug,
-                    "kept_player": preferred.get("name"),
-                    "discarded_player": discarded_entry.get("name"),
-                }
-            )
-
-        return list(unique.values())
-
-    def _select_preferred_record(
-        self, first: Dict[str, Any], second: Dict[str, Any]
-    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        if self._record_quality(second) > self._record_quality(first):
-            return second, first
-        return first, second
-
-    def _record_quality(self, record: Dict[str, Any]) -> int:
-        scored_fields = [
-            "status",
-            "number",
-            "headshotURL",
-            "height",
-            "weight",
-            "age",
-            "years_exp",
-            "college",
-        ]
-        score = 0
-        for field in scored_fields:
-            value = record.get(field)
-            if value not in (None, ""):
-                score += 1
-        return score
+    def _record_skip(self, reason: str, row: pd.Series) -> None:
+        self.skipped_records.append(
+            {
+                "reason": reason,
+                "team": row.get("team"),
+                "player_id": row.get("player_id"),
+                "player_name": row.get("player_name"),
+            }
+        )
 
 
 class GameDataTransformer(BaseDataTransformer):

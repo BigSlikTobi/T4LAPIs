@@ -49,18 +49,13 @@ def main() -> bool:
     operation = f"roster data load for season {args.season}"
     print_results(result, operation, args.dry_run)
 
-    version = result.get("version")
     skipped = result.get("skipped")
 
     if result.get("success"):
         if args.dry_run:
-            if version is not None:
-                print(f"Would apply version: {version}")
             if skipped:
                 _print_skipped(skipped, prefix="Would skip")
         else:
-            if version is not None:
-                print(f"Applied version: {version}")
             if skipped:
                 _print_skipped(skipped, prefix="Skipped records")
 

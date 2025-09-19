@@ -28,7 +28,7 @@ class TestRostersCLI(unittest.TestCase):
         mock_parser.return_value = mock_parser_instance
 
         mock_loader = MagicMock()
-        mock_loader.load_data.return_value = {"success": True, "version": 4}
+        mock_loader.load_data.return_value = {"success": True}
         mock_loader_cls.return_value = mock_loader
 
         exit_code = rosters_cli.main()
@@ -64,8 +64,7 @@ class TestRostersCLI(unittest.TestCase):
         mock_loader = MagicMock()
         mock_loader.load_data.return_value = {
             "success": True,
-            "version": 7,
-            "skipped": [{"reason": "duplicate_slug", "slug": "wr-player-kc-na"}],
+            "skipped": [{"reason": "duplicate_pair", "team": "KC", "player": "00-001"}],
         }
         mock_loader_cls.return_value = mock_loader
 

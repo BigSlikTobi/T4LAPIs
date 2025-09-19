@@ -10,25 +10,16 @@ class TestRosterDataTransformer(unittest.TestCase):
     """Test cases for RosterDataTransformer."""
 
     def setUp(self) -> None:
-        self.team_mapping = {"KC": 101, "LAR": 202}
-        self.transformer = RosterDataTransformer(self.team_mapping, version=3)
+        self.transformer = RosterDataTransformer()
 
     def test_transform_successful_record(self) -> None:
         """Transform a valid roster row into database payload."""
         df = pd.DataFrame(
             [
                 {
-                    "player_name": "Travis Kelce",
-                    "position": "TE",
                     "team": "KC",
-                    "jersey_number": 87,
-                    "status": "Active",
-                    "height": "77",
-                    "weight": 250,
-                    "college": "Cincinnati",
-                    "headshot_url": "http://example.com/headshot.jpg",
-                    "age": 34,
-                    "years_exp": 11,
+                    "player_id": "00-0028830",
+                    "player_name": "Travis Kelce",
                 }
             ]
         )
@@ -37,21 +28,17 @@ class TestRosterDataTransformer(unittest.TestCase):
 
         self.assertEqual(len(records), 1)
         record = records[0]
-        self.assertEqual(record["name"], "Travis Kelce")
-        self.assertEqual(record["position"], "TE")
-        self.assertEqual(record["teamId"], 101)
-        self.assertEqual(record["version"], 3)
-        self.assertEqual(record["number"], 87)
-        self.assertTrue(record["slug"].startswith("te-travis-kelce-kc"))
+        self.assertEqual(record["team"], "KC")
+        self.assertEqual(record["player"], "00-0028830")
 
     def test_transform_skips_unknown_team(self) -> None:
         """Skip records whose team cannot be mapped."""
         df = pd.DataFrame(
             [
                 {
-                    "player_name": "Unknown Player",
-                    "position": "QB",
                     "team": "XXX",
+                    "player_id": "00-0000000",
+                    "player_name": "Unknown Player",
                 }
             ]
         )
@@ -60,27 +47,19 @@ class TestRosterDataTransformer(unittest.TestCase):
 
         self.assertEqual(records, [])
         self.assertEqual(len(self.transformer.skipped_records), 1)
-        self.assertEqual(self.transformer.skipped_records[0]["reason"], "team_fk_not_found")
+        self.assertEqual(self.transformer.skipped_records[0]["reason"], "invalid_team")
 
-    def test_transform_deduplicates_slug(self) -> None:
-        """Ensure duplicate slugs keep the richer record and note the discard."""
+    def test_transform_deduplicates_team_player_pairs(self) -> None:
+        """Ensure duplicate team/player pairs only appear once."""
         df = pd.DataFrame(
             [
                 {
-                    "player_name": "Duplicate Player",
-                    "position": "WR",
                     "team": "KC",
-                    "jersey_number": 11,
-                    "status": "Active",
+                    "player_id": "00-0011111",
                 },
                 {
-                    "player_name": "Duplicate Player",
-                    "position": "WR",
                     "team": "KC",
-                    "jersey_number": 11,
-                    "status": None,
-                    "college": "Kansas State",
-                    "weight": 210,
+                    "player_id": "00-0011111",
                 },
             ]
         )
@@ -88,10 +67,7 @@ class TestRosterDataTransformer(unittest.TestCase):
         records = self.transformer.transform(df)
 
         self.assertEqual(len(records), 1)
-        record = records[0]
-        self.assertEqual(record["college"], "Kansas State")
-        self.assertEqual(record["weight"], 210)
-        duplicate_entries = [entry for entry in self.transformer.skipped_records if entry["reason"] == "duplicate_slug"]
+        duplicate_entries = [entry for entry in self.transformer.skipped_records if entry["reason"] == "duplicate_pair"]
         self.assertEqual(len(duplicate_entries), 1)
 
 
