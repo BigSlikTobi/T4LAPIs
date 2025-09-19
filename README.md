@@ -290,7 +290,8 @@ AI and entity tools
 
 NFL data loaders and auto-updaters
 - scripts/data_loaders/teams_cli.py: Load teams.
-- scripts/data_loaders/players_cli.py: Load player rosters for seasons.
+- scripts/data_loaders/players_cli.py: Load player reference data for seasons.
+- scripts/data_loaders/rosters_cli.py: Load season rosters with versioned upserts.
 - scripts/data_loaders/games_cli.py: Load schedules/results per season/week.
 - scripts/data_loaders/player_weekly_stats_cli.py: Load weekly player stats.
 - scripts/auto_updates/games_auto_update.py: Smart weekly game updater (current and next week).
@@ -463,11 +464,11 @@ python examples/demo_monitoring.py
 
 # Injury and roster update runners (basic entry points)
 python injury_updates/main.py
-python roster_updates/main.py
+python scripts/data_loaders/rosters_cli.py 2025 --dry-run
 
 # See help for options where available
 python injury_updates/main.py -h || true
-python roster_updates/main.py -h || true
+python scripts/data_loaders/rosters_cli.py -h || true
 ```
 
 Examples overview
