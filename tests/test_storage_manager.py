@@ -33,6 +33,10 @@ class FakeTable:
         self._ops.setdefault("filters", []).append(("eq", col, val))
         return self
 
+    def delete(self):
+        self._ops["delete"] = True
+        return self
+
     # Mutations
     def insert(self, rows: List[Dict[str, Any]]):
         self._ops["insert"] = rows
@@ -46,12 +50,18 @@ class FakeTable:
         self._ops["upsert"] = row
         return self
 
+    def range(self, start: int, end: int):
+        self._ops["range"] = (start, end)
+        return self
+
     def limit(self, n: int):
         self._ops["limit"] = n
         return self
 
     def execute(self):
-        return self.db.apply(self.name, self._ops)
+        result = self.db.apply(self.name, self._ops)
+        self._ops = {}
+        return result
 
 
 class FakeSupabase:
@@ -62,6 +72,8 @@ class FakeSupabase:
             "filter_decisions": [],
             "pipeline_audit_log": [],
             "players": [],  # Added for player/team disambiguation tests
+            "teams": [],
+            "news_url_entities": [],
         }
 
     def table(self, name: str):
@@ -77,6 +89,10 @@ class FakeSupabase:
             return self._apply_simple_append(table, ops)
         if table == "players":
             return self._apply_players(ops)
+        if table == "teams":
+            return self._apply_teams(ops)
+        if table == "news_url_entities":
+            return self._apply_news_url_entities(ops)
         return FakeResponse([])
 
     def _filter_rows(self, rows: List[Dict[str, Any]], filters: List):
@@ -89,10 +105,17 @@ class FakeSupabase:
                 out = [r for r in out if r.get(col) == val]
         return out
 
+    def _apply_range(self, rows: List[Dict[str, Any]], ops: Dict[str, Any]) -> List[Dict[str, Any]]:
+        if "range" in ops:
+            start, end = ops["range"]
+            return rows[start : end + 1]
+        return rows
+
     def _apply_news_urls(self, ops: Dict[str, Any]):
         rows = self.tables["news_urls"]
         if "select" in ops:
             subset = self._filter_rows(rows, ops.get("filters"))
+            subset = self._apply_range(subset, ops)
             return FakeResponse(subset)
         if "insert" in ops:
             inserted = []
@@ -141,6 +164,7 @@ class FakeSupabase:
         rows = self.tables["players"]
         if "select" in ops:
             subset = self._filter_rows(rows, ops.get("filters"))
+            subset = self._apply_range(subset, ops)
             return FakeResponse(subset)
         if "insert" in ops:
             inserted = []
@@ -149,6 +173,45 @@ class FakeSupabase:
                 rows.append(nr)
                 inserted.append(nr)
             return FakeResponse(inserted)
+        return FakeResponse([])
+
+    def _apply_teams(self, ops: Dict[str, Any]):
+        rows = self.tables["teams"]
+        if "select" in ops:
+            subset = self._filter_rows(rows, ops.get("filters"))
+            subset = self._apply_range(subset, ops)
+            return FakeResponse(subset)
+        if "insert" in ops:
+            inserted = []
+            for r in ops["insert"]:
+                nr = dict(r)
+                rows.append(nr)
+                inserted.append(nr)
+            return FakeResponse(inserted)
+        return FakeResponse([])
+
+    def _apply_news_url_entities(self, ops: Dict[str, Any]):
+        rows = self.tables["news_url_entities"]
+        if "delete" in ops:
+            filters = ops.get("filters") or []
+            to_delete = set()
+            subset = self._filter_rows(rows, filters)
+            for r in subset:
+                to_delete.add(id(r))
+            self.tables["news_url_entities"] = [r for r in rows if id(r) not in to_delete]
+            rows = self.tables["news_url_entities"]
+        if "insert" in ops:
+            inserted = []
+            for r in ops["insert"]:
+                nr = dict(r)
+                nr.setdefault("id", f"ent_{len(self.tables['news_url_entities']) + 1}")
+                self.tables["news_url_entities"].append(nr)
+                inserted.append(nr)
+            return FakeResponse(inserted)
+        if "select" in ops:
+            subset = self._filter_rows(rows, ops.get("filters"))
+            subset = self._apply_range(subset, ops)
+            return FakeResponse(subset)
         return FakeResponse([])
 
 
@@ -266,7 +329,128 @@ def test_player_disambiguation_with_team_context(monkeypatch):
     filtered_players_buf = sm._filter_players_by_teams(["Josh Allen"], ["BUF"])  # noqa: SLF001
 
     assert filtered_players_amb == []  # Ambiguous -> dropped
-    assert filtered_players_buf == ["Josh Allen"]  # Unique within BUF
+    assert filtered_players_buf == ["00-1111111"]  # Unique within BUF resolves to player_id
 
     # Sanity check: ids mapped for insertion path
     assert len(res.ids_by_url) == 2
+
+
+def test_store_entities_normalized_links_to_ids(monkeypatch):
+    db = FakeSupabase()
+    db.tables["players"].extend([
+        {
+            "player_id": "00-1111111",
+            "full_name": "Josh Allen",
+            "first_name": "Josh",
+            "last_name": "Allen",
+            "common_first_name": "Josh",
+            "latest_team": "BUF",
+        },
+        {
+            "player_id": "00-2222222",
+            "full_name": "Josh Allen",
+            "first_name": "Josh",
+            "last_name": "Allen",
+            "common_first_name": "Josh",
+            "latest_team": "JAX",
+        },
+    ])
+    db.tables["teams"].append(
+        {
+            "team_abbr": "BUF",
+            "team_name": "Buffalo Bills",
+            "team_nick": "Bills",
+            "city": "Buffalo",
+        }
+    )
+
+    monkeypatch.setenv("ENABLE_PLAYER_TEAM_FILTER", "1")
+    monkeypatch.setenv("KEEP_AMBIGUOUS_PLAYERS", "0")
+
+    sm = StorageManager(db)
+
+    item = make_item("https://buf.com/linked")
+    item.raw_metadata = {"entity_tags": {"players": ["Josh Allen"], "teams": ["Buffalo Bills"]}}
+
+    res = sm.store_news_items([item])
+    url_id = res.ids_by_url[item.url]
+
+    entities = [
+        (row["entity_type"], row["entity_value"]) for row in db.tables["news_url_entities"] if row["news_url_id"] == url_id
+    ]
+
+    assert ("team", "BUF") in entities
+    assert ("player", "00-1111111") in entities
+
+
+def test_store_entities_preserves_existing_rows_when_no_entities(monkeypatch):
+    db = FakeSupabase()
+    existing_id = "url_1"
+    db.tables["news_urls"].append({
+        "id": existing_id,
+        "url": "https://a.com/1",
+        "title": "Title",
+        "publication_date": datetime.now(timezone.utc),
+        "source_name": "src",
+        "publisher": "Pub",
+    })
+    db.tables["news_url_entities"].append({
+        "id": "ent_1",
+        "news_url_id": existing_id,
+        "entity_type": "team",
+        "entity_value": "BUF",
+    })
+
+    sm = StorageManager(db)
+    item = make_item("https://a.com/1")
+    item.entities = []
+    item.raw_metadata = {}
+
+    res = sm.store_news_items([item])
+    assert res.updated_count == 1
+    # Existing entity row should remain untouched because no new entities were provided
+    assert any(row["entity_value"] == "BUF" for row in db.tables["news_url_entities"] if row["news_url_id"] == existing_id)
+
+
+def test_store_entities_falls_back_to_uppercase_team_when_cache_empty(monkeypatch):
+    db = FakeSupabase()
+    sm = StorageManager(db)
+
+    item = make_item("https://team.com/1")
+    item.raw_metadata = {"entity_tags": {"players": [], "teams": ["BUF"]}}
+
+    res = sm.store_news_items([item])
+    url_id = res.ids_by_url[item.url]
+    entities = [
+        (row["entity_type"], row["entity_value"]) for row in db.tables["news_url_entities"] if row["news_url_id"] == url_id
+    ]
+
+    assert ("team", "BUF") in entities
+
+
+def test_store_players_when_team_column_missing(monkeypatch):
+    db = FakeSupabase()
+    db.tables["players"].append(
+        {
+            "player_id": "00-9999999",
+            "full_name": "Example Player",
+            "first_name": "Example",
+            "last_name": "Player",
+            "team_abbr": "DAL",
+        }
+    )
+
+    db.tables["teams"].append({"team_abbr": "DAL", "team_name": "Dallas Cowboys", "team_nick": "Cowboys"})
+
+    sm = StorageManager(db)
+
+    item = make_item("https://player.com/1")
+    item.raw_metadata = {"entity_tags": {"players": ["Example Player"], "teams": ["DAL"]}}
+
+    res = sm.store_news_items([item])
+    url_id = res.ids_by_url[item.url]
+    entities = [
+        (row["entity_type"], row["entity_value"]) for row in db.tables["news_url_entities"] if row["news_url_id"] == url_id
+    ]
+
+    assert ("player", "00-9999999") in entities

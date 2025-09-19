@@ -609,13 +609,14 @@ class RosterDataTransformer(BaseDataTransformer):
         return value
 
     def _record_skip(self, reason: str, player_name: str, team: Optional[str]) -> None:
-        self.skipped_records.append(
-            {
-                "reason": reason,
-                "player_name": player_name,
-                "team": team,
-            }
-        )
+            self.skipped_records.append(
+                {
+                    "reason": reason,
+                    "player_name": player_name,
+                    "team": team,
+                }
+            )
+
 
     def _deduplicate_records(self, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if not records:

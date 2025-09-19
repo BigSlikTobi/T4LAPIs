@@ -38,6 +38,10 @@ load_dotenv(str(ROOT / ".env"), override=False)
 # Domain imports (after sys.path adjustments)
 # --------------------------------------------------------------------------------------
 from src.nfl_news_pipeline.config import ConfigManager
+from src.nfl_news_pipeline.entities.enrichment import (
+    build_entities_extractor,
+    enrich_processed_item,
+)
 from src.nfl_news_pipeline.models import FeedConfig, NewsItem, ProcessedNewsItem
 from src.nfl_news_pipeline.processors.rss import RSSProcessor
 from src.nfl_news_pipeline.processors.sitemap import SitemapProcessor
@@ -208,12 +212,13 @@ def _store_to_supabase(results: List[SourceFetchResult]) -> Tuple[int, int]:
     if not isinstance(storage, StorageManager):
         raise RuntimeError("Supabase storage unavailable; configure credentials or use --dry-run")
 
+    extractor = build_entities_extractor()
     inserted = 0
     updated = 0
     for result in results:
         if not result.items:
             continue
-        processed_items = [_news_to_processed(item) for item in result.items]
+        processed_items = [enrich_processed_item(_news_to_processed(item), extractor) for item in result.items]
         store_result = storage.store_news_items(processed_items)
         inserted += store_result.inserted_count
         updated += store_result.updated_count
