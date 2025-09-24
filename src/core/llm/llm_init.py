@@ -66,6 +66,7 @@ class DeepSeekLLM:
             try:
                 self.logger.debug(f"Attempting entity extraction (attempt {attempt + 1}/{max_retries})")
                 
+                token_param = "max_completion_tokens" if self.model.lower().startswith("gpt-5") else "max_tokens"
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=[
@@ -79,8 +80,8 @@ class DeepSeekLLM:
                         }
                     ],
                     temperature=0.1,  # Low temperature for consistent results
-                    max_tokens=1000,  # Reasonable limit for entity lists
-                    stream=False
+                    stream=False,
+                    **{token_param: 1000},
                 )
                 
                 # Extract the response content

@@ -25,7 +25,12 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # pragma: no cover
+    # Fallback no-op if python-dotenv isn't installed in this environment
+    def load_dotenv(*args, **kwargs):  # type: ignore
+        return False
 
 # Ensure repo root on sys.path, regardless of nesting depth
 def _repo_root() -> Path:

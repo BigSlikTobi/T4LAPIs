@@ -36,7 +36,7 @@ class LLMConfig:
     """Configuration for LLM providers used in story grouping."""
     
     provider: str = "openai"  # openai, google, deepseek
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-5-nano"
     api_key_env: str = "OPENAI_API_KEY"
     max_tokens: int = 500
     temperature: float = 0.1
