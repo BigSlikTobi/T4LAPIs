@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 import numpy as np
-import json
 from dotenv import load_dotenv
 
 from .pipeline_cli import _build_storage
