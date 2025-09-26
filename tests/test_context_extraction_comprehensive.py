@@ -101,6 +101,7 @@ class TestURLContextExtractorComprehensive:
         
         extractor = URLContextExtractor()
         extractor.openai_client = mock_client
+        extractor.google_client = None  # Ensure alternate providers stay disabled
         extractor.cache = Mock()
         extractor.cache.get_cached_summary.return_value = None
         
@@ -119,8 +120,8 @@ class TestURLContextExtractorComprehensive:
         # Verify API call parameters
         call_args = mock_client.chat.completions.create.call_args
         assert call_args[1]['model'] == 'gpt-5-nano'
-        assert call_args[1]['temperature'] == 0.1
-        assert call_args[1]['max_tokens'] == 500
+        assert 'temperature' not in call_args[1]
+        assert call_args[1]['max_completion_tokens'] == 500
     
     @pytest.mark.asyncio
     async def test_extract_context_google_success_with_entity_normalization(self, sample_news_item, mock_google_response):
@@ -155,6 +156,7 @@ class TestURLContextExtractorComprehensive:
         
         extractor = URLContextExtractor()
         extractor.openai_client = mock_client
+        extractor.google_client = None  # Ensure alternate providers stay disabled
         extractor.cache = Mock()
         extractor.cache.get_cached_summary.return_value = None
         
@@ -178,6 +180,7 @@ class TestURLContextExtractorComprehensive:
         
         extractor = URLContextExtractor()
         extractor.openai_client = mock_client
+        extractor.google_client = None  # Ensure alternate providers stay disabled
         extractor.cache = Mock()
         extractor.cache.get_cached_summary.return_value = None
         

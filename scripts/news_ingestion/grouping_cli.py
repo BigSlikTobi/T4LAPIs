@@ -65,6 +65,12 @@ def _normalize_embedding(vector: object) -> List[float]:
 
 DEFAULT_SUPABASE_EMBEDDING_LIMIT = 200
 SUPABASE_NEWS_PAGE_SIZE = int(os.getenv("NEWS_URL_PAGE_SIZE", "200"))
+EMBEDDING_FETCH_CHUNK = int(os.getenv("GROUPING_EMBEDDING_LOOKUP_CHUNK", "200"))
+
+
+def _chunked(values: Sequence[str], size: int) -> Iterable[Sequence[str]]:
+    for index in range(0, len(values), size):
+        yield values[index : index + size]
 
 
 def _load_embeddings(path: Optional[str]) -> Dict[str, List[float]]:
@@ -85,20 +91,38 @@ def _fetch_embeddings_for_ids(
 ) -> Dict[str, List[float]]:
     client = _get_supabase_client()
     table = client.table(os.getenv("STORY_EMBEDDINGS_TABLE", "story_embeddings"))
-    query = table.select("news_url_id, embedding_vector, generated_at")
-
     ids = [str(value) for value in story_ids if value]
-    if ids:
-        query = query.in_("news_url_id", ids)
-    else:
-        fetch_limit = limit or DEFAULT_SUPABASE_EMBEDDING_LIMIT
-        query = query.order("generated_at", desc=True).limit(fetch_limit)
-
-    response = query.execute()
-    rows = response.data or []
     embeddings: Dict[str, List[float]] = {}
+
+    if ids:
+        chunk_size = max(1, EMBEDDING_FETCH_CHUNK)
+        for chunk in _chunked(ids, chunk_size):
+            response = (
+                table.select("news_url_id, embedding_vector, generated_at")
+                .in_("news_url_id", list(chunk))
+                .execute()
+            )
+            rows = response.data or []
+            for row in rows:
+                news_id = row.get("news_url_id")
+                if news_id is None:
+                    continue
+                embeddings[str(news_id)] = _normalize_embedding(row.get("embedding_vector"))
+        return embeddings
+
+    fetch_limit = limit or DEFAULT_SUPABASE_EMBEDDING_LIMIT
+    response = (
+        table.select("news_url_id, embedding_vector, generated_at")
+        .order("generated_at", desc=True)
+        .limit(fetch_limit)
+        .execute()
+    )
+    rows = response.data or []
     for row in rows:
-        embeddings[str(row.get("news_url_id"))] = _normalize_embedding(row.get("embedding_vector"))
+        news_id = row.get("news_url_id")
+        if news_id is None:
+            continue
+        embeddings[str(news_id)] = _normalize_embedding(row.get("embedding_vector"))
     return embeddings
 
 
@@ -155,13 +179,21 @@ def _fetch_existing_memberships(story_ids: Iterable[str]) -> Dict[str, str]:
 
     client = _get_supabase_client()
     table = client.table(os.getenv("STORY_GROUP_MEMBERS_TABLE", "story_group_members"))
-    response = table.select("news_url_id, group_id").in_("news_url_id", ids).execute()
-    rows = response.data or []
-    return {
-        str(row.get("news_url_id")): str(row.get("group_id"))
-        for row in rows
-        if row.get("news_url_id") and row.get("group_id")
-    }
+    memberships: Dict[str, str] = {}
+    chunk_size = max(1, EMBEDDING_FETCH_CHUNK)
+    for chunk in _chunked(ids, chunk_size):
+        response = (
+            table.select("news_url_id, group_id")
+            .in_("news_url_id", list(chunk))
+            .execute()
+        )
+        rows = response.data or []
+        for row in rows:
+            news_id = row.get("news_url_id")
+            group_id = row.get("group_id")
+            if news_id and group_id:
+                memberships[str(news_id)] = str(group_id)
+    return memberships
 
 
 def _fetch_group_metadata(group_ids: Iterable[str]) -> Dict[str, Dict[str, object]]:
@@ -171,23 +203,25 @@ def _fetch_group_metadata(group_ids: Iterable[str]) -> Dict[str, Dict[str, objec
 
     client = _get_supabase_client()
     table = client.table(os.getenv("STORY_GROUPS_TABLE", "story_groups"))
-    response = (
-        table.select("id, member_count, centroid_embedding, tags, status")
-        .in_("id", ids)
-        .execute()
-    )
-    rows = response.data or []
     output: Dict[str, Dict[str, object]] = {}
-    for row in rows:
-        group_id = row.get("id")
-        if not group_id:
-            continue
-        output[str(group_id)] = {
-            "member_count": int(row.get("member_count", 0) or 0),
-            "centroid_embedding": _normalize_embedding(row.get("centroid_embedding")),
-            "tags": row.get("tags") or [],
-            "status": row.get("status"),
-        }
+    chunk_size = max(1, EMBEDDING_FETCH_CHUNK)
+    for chunk in _chunked(ids, chunk_size):
+        response = (
+            table.select("id, member_count, centroid_embedding, tags, status")
+            .in_("id", list(chunk))
+            .execute()
+        )
+        rows = response.data or []
+        for row in rows:
+            group_id = row.get("id")
+            if not group_id:
+                continue
+            output[str(group_id)] = {
+                "member_count": int(row.get("member_count", 0) or 0),
+                "centroid_embedding": _normalize_embedding(row.get("centroid_embedding")),
+                "tags": row.get("tags") or [],
+                "status": row.get("status"),
+            }
     return output
 
 

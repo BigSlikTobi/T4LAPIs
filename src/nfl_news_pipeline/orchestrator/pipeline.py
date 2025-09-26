@@ -122,6 +122,11 @@ class NFLNewsPipeline:
         self.cm.load_config()
         defaults = self.cm.get_defaults()
         sources = self.cm.get_enabled_sources()
+        batch_filter = os.getenv("NEWS_PIPELINE_BATCH_SOURCES")
+        if batch_filter:
+            allowed = {name.strip().lower() for name in batch_filter.split(",") if name.strip()}
+            if allowed:
+                sources = [s for s in sources if s.name.lower() in allowed]
         only = os.environ.get("NEWS_PIPELINE_ONLY_SOURCE")
         if only:
             sources = [s for s in sources if s.name == only]

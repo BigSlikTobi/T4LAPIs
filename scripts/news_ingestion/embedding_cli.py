@@ -47,6 +47,12 @@ from src.nfl_news_pipeline.storage.protocols import get_grouping_client
 
 DEFAULT_SUPABASE_LIMIT = 50
 SUPABASE_CONTEXT_PAGE_SIZE = int(os.getenv("CONTEXT_SUMMARY_PAGE_SIZE", "200"))
+EMBEDDING_LOOKUP_CHUNK = int(os.getenv("STORY_EMBEDDING_LOOKUP_CHUNK", "200"))
+
+
+def _chunked(values: Sequence[str], size: int) -> Iterable[Sequence[str]]:
+    for index in range(0, len(values), size):
+        yield values[index : index + size]
 
 
 def _parse_story_ids(raw: Optional[str]) -> List[str]:
@@ -67,13 +73,16 @@ def _fetch_existing_embedding_ids(story_ids: Iterable[str]) -> set[str]:
 
     client = _get_supabase_client()
     table = client.table(os.getenv("STORY_EMBEDDINGS_TABLE", "story_embeddings"))
-    response = table.select("news_url_id").in_("news_url_id", ids).execute()
-    rows = response.data or []
-    return {
-        str(row.get("news_url_id"))
-        for row in rows
-        if row.get("news_url_id")
-    }
+    existing: set[str] = set()
+    chunk_size = max(1, EMBEDDING_LOOKUP_CHUNK)
+    for chunk in _chunked(ids, chunk_size):
+        response = table.select("news_url_id").in_("news_url_id", list(chunk)).execute()
+        rows = response.data or []
+        for row in rows:
+            news_id = row.get("news_url_id")
+            if news_id:
+                existing.add(str(news_id))
+    return existing
 
 
 def _rows_to_summaries(rows: List[Dict[str, object]]) -> List[ContextSummary]:

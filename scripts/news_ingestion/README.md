@@ -11,7 +11,9 @@ The news pipeline decomposed into discrete stages so every step can be optimised
 | Embeddings | `python scripts/embedding_cli.py --input contexts.json --output embeddings.json --mock` | `stories[*].embedding` |
 | Similarity pairs | `python scripts/similarity_cli.py --input embeddings.json --output similarities.json --threshold 0.6` | `pairs[*].{story_id_a, story_id_b, similarity}` |
 | Group assignment | `python scripts/grouping_cli.py --similarities similarities.json --embeddings embeddings.json --output groups.json --threshold 0.6` | `groups[*].members` + optional centroids |
-| Full pipeline | `python scripts/full_story_pipeline_cli.py --config feeds.yaml` | Ingestion + context + embeddings + grouping (Supabase aware) |
+| Full pipeline (ingestion) | `python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml` | Fetch + filter + Supabase writes (supports batching via `--batch-size`). |
+| Full pipeline + grouping | `python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --enable-story-grouping` | Adds context, embeddings, and grouping to the run. |
+| Legacy combined flow | `python scripts/full_story_pipeline_cli.py --config feeds.yaml` | Original ingestion + grouping shim (still available). |
 
 All stage CLIs accept `--output` to persist structured JSON. You can pipe artefacts directly from one command to the next or inspect/edit the intermediate files as part of local optimisation. The `--mock` switches on the context/embedding commands generate deterministic placeholders so you can test workflows without hitting OpenAI/Google APIs.
 
@@ -65,11 +67,12 @@ python scripts/grouping_cli.py --similarities similarities.json --embeddings emb
 Swap stage commands for their Supabase-backed equivalents (e.g., context/embedding via the pipeline) whenever you want the official storage side-effects.
 
 ## Legacy & Combined Entrypoints
-- `python scripts/news_ingestion/pipeline_cli.py …` remains the canonical driver for ingestion + filtering.
+- `python scripts/news_ingestion/pipeline_cli.py …` remains the canonical driver for ingestion + filtering. Add `--batch-size N [--batch-delay seconds]` to process sources sequentially and avoid sudden LLM bursts.
 - `python scripts/full_story_pipeline_cli.py …` chains ingestion and story grouping with Supabase writes, honouring defaults and feature flags in `feeds.yaml`.
 - `python scripts/news_ingestion/news_fetch_demo.py …` still provides the lightweight demo fetcher.
 
 ## Tips & Environment Flags
 - Config resides in `feeds.yaml`; defaults there influence both combined and staged runs.
 - Useful environment toggles: `NEWS_PIPELINE_ONLY_SOURCE`, `NEWS_PIPELINE_DEBUG`, `NEWS_PIPELINE_DISABLE_ENTITY_DICT`, `NEWS_PIPELINE_DISABLE_STORY_GROUPING`.
+- The batching CLI temporarily sets `NEWS_PIPELINE_BATCH_SOURCES` behind the scenes; you generally don’t need to touch it manually.
 - Supply `OPENAI_API_KEY` / `GOOGLE_API_KEY` when running live context or embedding stages.

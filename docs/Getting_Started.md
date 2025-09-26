@@ -21,9 +21,11 @@ This guide helps you run the NFL News Pipeline on your machine in a simple way. 
 ## 3) Quick dry-run (no DB writes)
 Try the pipeline end-to-end without touching any database.
 - List sources:
-  python scripts/pipeline_cli.py list-sources --config feeds.yaml
+  python scripts/news_ingestion/pipeline_cli.py list-sources --config feeds.yaml
 - Run a single source with dry-run (example: ESPN):
-  python scripts/pipeline_cli.py run --config feeds.yaml --source espn --dry-run --disable-llm
+  python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --source espn --dry-run --disable-llm
+- Run all sources in small batches (avoids LLM spikes):
+  python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --dry-run --disable-llm --batch-size 3 --batch-delay 1
 
 You should see a summary with “Dry-run stored items” preview. This confirms fetching, filtering, and processing work locally.
 
@@ -42,7 +44,7 @@ If you want AI assistance (relevance and entity extraction use OpenAI gpt-5-nano
    NEWS_PIPELINE_LLM_CACHE=1
    NEWS_PIPELINE_LLM_CACHE_TTL=86400
 2. Re-run without --disable-llm:
-   python scripts/pipeline_cli.py run --config feeds.yaml --source espn --dry-run
+   python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --source espn --dry-run
 
 ## 5) Connect a database (Supabase)
 To persist results, configure Supabase and run without --dry-run.
@@ -53,9 +55,9 @@ To persist results, configure Supabase and run without --dry-run.
    SUPABASE_URL=...
    SUPABASE_KEY=...
 3. Run a status check:
-   python scripts/pipeline_cli.py status --config feeds.yaml
+   python scripts/news_ingestion/pipeline_cli.py status --config feeds.yaml
 4. Run the pipeline (writes to DB):
-   python scripts/pipeline_cli.py run --config feeds.yaml --source espn
+   python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --source espn
 
 Notes:
 - The schema includes news_urls, source_watermarks, and pipeline_audit_log.
@@ -79,10 +81,10 @@ We include a GitHub Actions workflow to run the pipeline on a schedule.
 
 ## 8) Useful commands
 - Validate config:
-  python scripts/pipeline_cli.py validate --config feeds.yaml
+  python scripts/news_ingestion/pipeline_cli.py validate --config feeds.yaml
 - Run all enabled sources (dry-run):
-  python scripts/pipeline_cli.py run --config feeds.yaml --dry-run --disable-llm
+  python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --dry-run --disable-llm --batch-size 4 --batch-delay 1
 - Run a single source with LLM:
-  python scripts/pipeline_cli.py run --config feeds.yaml --source espn
+  python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --source espn
 
 That’s it! You can now fetch, filter, and optionally store NFL news items locally or in your database.

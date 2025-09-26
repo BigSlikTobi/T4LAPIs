@@ -70,6 +70,8 @@ pip install -r requirements.txt
 # List pipeline sources then dry-run (grouped under scripts/news_ingestion)
 python scripts/news_ingestion/pipeline_cli.py list-sources --config feeds.yaml
 python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --dry-run --disable-llm
+# Tip: throttle large runs with batching
+# python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --batch-size 3 --batch-delay 2
 
 # Try a data loader
 python scripts/data_loaders/teams_cli.py --dry-run
@@ -152,6 +154,7 @@ Tips
 - Toggle story grouping with --enable-story-grouping or env NEWS_PIPELINE_ENABLE_STORY_GROUPING=1.
 - To rerun everything regardless of prior watermarks, use --ignore-watermark or env NEWS_PIPELINE_IGNORE_WATERMARK=1.
 - Use --dry-run to explore without DB writes; grouping requires a real DB client (Supabase) to persist results.
+- When using `--batch-size`, the CLI sets `NEWS_PIPELINE_BATCH_SOURCES` internally so the orchestrator only processes the current batch; you typically shouldn’t set it manually.
 
 ### DB legend (key tables and payloads)
 
@@ -263,6 +266,8 @@ defaults:
 Run with grouping on (dry run)
 ```
 python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --enable-story-grouping --dry-run
+# Batching example (3 sources at a time, 2s pause)
+python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --batch-size 3 --batch-delay 2
 ```
 
 Where to find a fuller example
@@ -277,7 +282,7 @@ Environment overrides
 This project is script-first: each feature is a CLI. Here’s what they do and when to use them.
 
 News pipeline and grouping
-- scripts/news_ingestion/pipeline_cli.py: Orchestrates the news pipeline (list/validate/run/status). Can also run story grouping: group-stories, group-backfill, group-status, group-report.
+- scripts/news_ingestion/pipeline_cli.py: Orchestrates the news pipeline (list/validate/run/status). Supports batching (`--batch-size` / `--batch-delay`) to throttle LLM usage and can run story grouping: group-stories, group-backfill, group-status, group-report.
 - scripts/story_grouping/story_grouping_dry_run.py: Run story grouping logic without writing to DB (good for demos).
 - scripts/story_grouping/story_grouping_batch_processor.py: Backfill older stories in batches with resume support.
 - scripts/story_grouping/story_grouping_cli_demo.py: Small CLI demo for grouping flows.
@@ -324,6 +329,7 @@ python scripts/news_ingestion/pipeline_cli.py validate --config feeds.yaml
 
 # Dry run all sources (no DB writes, no LLM)
 python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --dry-run --disable-llm
+python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --batch-size 4 --batch-delay 1
 
 # Run a single source (writes to DB if .env set)
 python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --source espn
@@ -353,6 +359,7 @@ Run it
 ```
 # Run pipeline with grouping
 python scripts/news_ingestion/pipeline_cli.py run --enable-story-grouping --dry-run
+python scripts/news_ingestion/pipeline_cli.py run --batch-size 3 --batch-delay 1.5 --enable-story-grouping
 
 # Manual grouping of recent items
 python scripts/news_ingestion/pipeline_cli.py group-stories --max-stories 50 --dry-run

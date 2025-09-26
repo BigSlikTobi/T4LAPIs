@@ -1080,10 +1080,11 @@ class TestPerformanceAndScalability:
         # Mock components with intermittent failures
         success_count = 0
         failure_count = 0
-        
+        import random
+        rng = random.Random(1)
+
         async def mock_process_with_failures(story):
-            import random
-            if random.random() < error_rate:
+            if rng.random() < error_rate:
                 # Simulate failure
                 nonlocal failure_count
                 failure_count += 1

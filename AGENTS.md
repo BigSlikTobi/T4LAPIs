@@ -9,7 +9,7 @@
 
 ## Build, Test, and Development Commands
 - `python -m venv .venv && source .venv/bin/activate` then `pip install -r requirements.txt` installs dependencies.
-- `python scripts/pipeline_cli.py list-sources --config feeds.yaml` or `run --dry-run --disable-llm` exercises the news pipeline without writes.
+- `python scripts/news_ingestion/pipeline_cli.py list-sources --config feeds.yaml` or `run --dry-run --disable-llm` exercises the news pipeline without writes (add `--batch-size` to throttle LLMs).
 - `python scripts/teams_cli.py --dry-run` (and other `*_cli.py`) validates data loaders locally.
 - `cd api && uvicorn main:app --reload` starts the REST API at `http://localhost:8000/docs`.
 - `python -m pytest -q` runs the suite; use `pytest tests/test_story_grouping_integration.py` for targeted checks.
