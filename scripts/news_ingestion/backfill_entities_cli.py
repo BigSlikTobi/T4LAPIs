@@ -124,7 +124,11 @@ def run_backfill(
         raise RuntimeError("Supabase client unavailable; ensure credentials are configured.")
 
     table = getattr(storage, "table_news", os.getenv("NEWS_URLS_TABLE", "news_urls"))
+    if verbose:
+        print("Building entity dictionary (this may take a moment)...")
     extractor = build_entities_extractor()
+    if extractor is None:
+        print("Warning: entity extractor unavailable; team/player resolution may be incomplete.")
 
     processed = 0
     inserted = 0
@@ -132,22 +136,28 @@ def run_backfill(
     offset = 0
     remaining = limit
 
-    while True:
-        if remaining is not None and remaining <= 0:
-            break
-        current_batch = batch_size if remaining is None else min(batch_size, remaining)
-        rows = _fetch_batch(client, table, offset, current_batch)
-        if not rows:
-            break
-        count, ins, upd = _process_batch(rows, extractor, dry_run=dry_run, storage=storage)
-        processed += count
-        inserted += ins
-        updated += upd
-        if verbose and count:
-            print(f"Batch offset={offset}: processed={count} updated={upd}")
-        offset += len(rows)
-        if remaining is not None:
-            remaining -= len(rows)
+    try:
+        while True:
+            if remaining is not None and remaining <= 0:
+                break
+            current_batch = batch_size if remaining is None else min(batch_size, remaining)
+            rows = _fetch_batch(client, table, offset, current_batch)
+            if not rows:
+                break
+            count, ins, upd = _process_batch(rows, extractor, dry_run=dry_run, storage=storage)
+            processed += count
+            inserted += ins
+            updated += upd
+            if verbose:
+                print(
+                    f"Batch offset={offset}: fetched={len(rows)} processed={count} "
+                    f"inserts={ins} updates={upd}"
+                )
+            offset += len(rows)
+            if remaining is not None:
+                remaining -= len(rows)
+    except KeyboardInterrupt:
+        print("\nBackfill interrupted by user. Partial results reported below.")
 
     print(
         "Backfill summary: "
