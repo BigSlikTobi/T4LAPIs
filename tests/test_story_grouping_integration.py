@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from uuid import uuid4
 from typing import List, Dict, Any
+import random
 
 from src.nfl_news_pipeline.models import (
     ProcessedNewsItem,
@@ -1080,10 +1081,10 @@ class TestPerformanceAndScalability:
         # Mock components with intermittent failures
         success_count = 0
         failure_count = 0
-        
+        rng = random.Random(1)
+
         async def mock_process_with_failures(story):
-            import random
-            if random.random() < error_rate:
+            if rng.random() < error_rate:
                 # Simulate failure
                 nonlocal failure_count
                 failure_count += 1

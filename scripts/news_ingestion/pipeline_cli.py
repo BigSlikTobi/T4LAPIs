@@ -9,10 +9,10 @@ Commands:
   - list-sources: Print enabled sources
 
 Examples:
-  python scripts/pipeline_cli.py run --config feeds.yaml --dry-run
-  python scripts/pipeline_cli.py run --source espn --disable-llm
-  python scripts/pipeline_cli.py validate
-  python scripts/pipeline_cli.py status
+  python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --dry-run
+  python scripts/news_ingestion/pipeline_cli.py run --source espn --disable-llm
+  python scripts/news_ingestion/pipeline_cli.py validate
+  python scripts/news_ingestion/pipeline_cli.py status
 """
 from __future__ import annotations
 
@@ -20,10 +20,11 @@ import argparse
 import json
 import os
 import sys
+import time
 from dataclasses import asdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Iterable, List, Optional
 
 try:
     from dotenv import load_dotenv  # type: ignore
@@ -134,6 +135,17 @@ def _build_storage(dry_run: bool) -> StorageManager | _DryRunStorage:
 
 def _slug(s: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "-" for ch in s).strip("-")
+
+
+def _chunked(seq: Iterable[str], size: int) -> Iterable[List[str]]:
+    batch: List[str] = []
+    for item in seq:
+        batch.append(item)
+        if len(batch) >= size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
 
 
 def _filter_sources(sources: List[FeedConfig], name: Optional[str]) -> List[FeedConfig]:
@@ -424,6 +436,8 @@ def cmd_run(
     llm_timeout: Optional[float],
     enable_story_grouping: bool = False,
     ignore_watermark: bool = False,
+    batch_size: Optional[int] = None,
+    batch_delay: float = 0.0,
 ) -> int:
     cm = ConfigManager(cfg_path)
     cm.load_config()
@@ -441,7 +455,11 @@ def cmd_run(
         os.environ["NEWS_PIPELINE_IGNORE_WATERMARK"] = "1"
 
     # If single source requested, temporarily write a filtered config manager
+    batch_size = (batch_size or 0)
+
     if source:
+        if batch_size:
+            print("Ignoring --batch-size because --source was provided")
         enabled = cm.get_enabled_sources()
         matches = _filter_sources(enabled, source)
         if not matches:
@@ -455,12 +473,71 @@ def cmd_run(
             print(f"Matched '{chosen.name}'. Other matches: {also}")
         os.environ["NEWS_PIPELINE_ONLY_SOURCE"] = chosen.name
 
+    enabled_sources = cm.get_enabled_sources()
+
+    # Sequential batching across sources to control LLM load
+    if batch_size and not source:
+        source_names = [s.name for s in enabled_sources]
+        if not source_names:
+            print("No enabled sources to process.")
+            return 0
+
+        summaries: List[Any] = []
+        batches = list(_chunked(source_names, batch_size))
+        total_batches = len(batches)
+        for idx, batch_sources in enumerate(batches, start=1):
+            os.environ["NEWS_PIPELINE_BATCH_SOURCES"] = ",".join(batch_sources)
+            try:
+                pipeline = NFLNewsPipeline(cfg_path, storage=storage, audit=audit)
+                summary = pipeline.run()
+                summaries.append(summary)
+            finally:
+                os.environ.pop("NEWS_PIPELINE_BATCH_SOURCES", None)
+
+            print(
+                f"Batch {idx}/{total_batches} ({', '.join(batch_sources)}): "
+                f"sources={summary.sources} fetched={summary.fetched_items} kept={summary.filtered_in} "
+                f"inserted={summary.inserted} updated={summary.updated} errors={summary.errors} store_errors={summary.store_errors} "
+                f"time={summary.duration_ms}ms"
+            )
+
+            if batch_delay and idx < total_batches:
+                time.sleep(batch_delay)
+
+        if not summaries:
+            print("No batches executed.")
+            return 0
+
+        agg = summaries[0]
+        for extra in summaries[1:]:
+            agg = type(agg)(
+                sources=agg.sources + extra.sources,
+                fetched_items=agg.fetched_items + extra.fetched_items,
+                filtered_in=agg.filtered_in + extra.filtered_in,
+                errors=agg.errors + extra.errors,
+                inserted=agg.inserted + extra.inserted,
+                updated=agg.updated + extra.updated,
+                store_errors=agg.store_errors + extra.store_errors,
+                duration_ms=agg.duration_ms + extra.duration_ms,
+            )
+
+        print(
+            "Aggregated summary: "
+            f"sources={agg.sources} fetched={agg.fetched_items} kept={agg.filtered_in} "
+            f"inserted={agg.inserted} updated={agg.updated} errors={agg.errors} store_errors={agg.store_errors} "
+            f"time={agg.duration_ms}ms"
+        )
+
+        if dry_run and isinstance(storage, _DryRunStorage) and storage.rows:
+            print(f"Dry-run stored items (preview): {min(5, len(storage.rows))}/{len(storage.rows)}")
+            for it in storage.rows[:5]:
+                print(f" - {getattr(it, 'title', '-')}: {getattr(it, 'url', '-')}")
+        return 0
+
     pipeline = NFLNewsPipeline(cfg_path, storage=storage, audit=audit)
-    # Small hook: let orchestrator optionally filter sources by env var if present
     try:
         summary = pipeline.run()
     finally:
-        # Clean up env override
         os.environ.pop("NEWS_PIPELINE_ONLY_SOURCE", None)
 
     print(
@@ -489,6 +566,8 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--llm-timeout", type=float, help="Override LLM timeout in seconds")
     pr.add_argument("--enable-story-grouping", action="store_true", help="Enable story grouping post-processing")
     pr.add_argument("--ignore-watermark", action="store_true", help="Ignore source watermarks and process all fetched items")
+    pr.add_argument("--batch-size", type=int, help="Process sources in batches (limits LLM bursts)")
+    pr.add_argument("--batch-delay", type=float, default=0.0, help="Sleep seconds between batches")
 
     # validate
     pv = sub.add_parser("validate", help="Validate configuration and show warnings")
@@ -555,6 +634,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             llm_timeout=getattr(args, "llm_timeout", None),
             enable_story_grouping=bool(getattr(args, "enable_story_grouping", False)),
             ignore_watermark=bool(getattr(args, "ignore_watermark", False)),
+            batch_size=getattr(args, "batch_size", None),
+            batch_delay=getattr(args, "batch_delay", 0.0),
         )
 
     if args.cmd == "group-stories":

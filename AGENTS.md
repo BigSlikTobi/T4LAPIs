@@ -9,7 +9,7 @@
 
 ## Build, Test, and Development Commands
 - `python -m venv .venv && source .venv/bin/activate` then `pip install -r requirements.txt` installs dependencies.
-- `python scripts/pipeline_cli.py list-sources --config feeds.yaml` or `run --dry-run --disable-llm` exercises the news pipeline without writes.
+- `python scripts/news_ingestion/pipeline_cli.py list-sources --config feeds.yaml` or `run --dry-run --disable-llm` exercises the news pipeline without writes (add `--batch-size` to throttle LLMs).
 - `python scripts/teams_cli.py --dry-run` (and other `*_cli.py`) validates data loaders locally.
 - `cd api && uvicorn main:app --reload` starts the REST API at `http://localhost:8000/docs`.
 - `python -m pytest -q` runs the suite; use `pytest tests/test_story_grouping_integration.py` for targeted checks.
@@ -25,8 +25,11 @@
 - Run `python -m pytest -q` before pushing and capture notable command output in PRs when behavior shifts.
 
 ## Commit & Pull Request Guidelines
+- Start every piece of work by creating a dedicated feature branch; never develop directly on `main`.
 - Mirror git history: imperative subject, optional scope, PR number on merge (e.g., `Fix story grouping gating logic (#55)`).
 - Keep commits focused and note schema or config implications in the body.
+- When the branch is ready, open a detailed pull request summarizing changes, validation steps, and any follow-ups.
+- Do not push commits straight to `main`; all changes flow through reviewed pull requests.
 - PRs should explain motivation, list validation commands (pytest, CLI dry-runs, API smoke checks), link relevant docs, and attach payload samples when responses change; call out new env vars.
 
 ## Configuration & Secrets

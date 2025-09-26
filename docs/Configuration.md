@@ -11,7 +11,9 @@ Purpose
 
 Usage
 ```
-python scripts/pipeline_cli.py run --config feeds.yaml --dry-run
+python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --dry-run
+# Throttle larger runs
+python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --dry-run --batch-size 3 --batch-delay 1
 ```
 
 Grouping toggles in feeds.yaml
@@ -40,11 +42,11 @@ Environment variables
 Run examples
 ```
 # Pipeline with grouping (dry run)
-python scripts/pipeline_cli.py run --config feeds.yaml --enable-story-grouping --dry-run
+python scripts/news_ingestion/pipeline_cli.py run --config feeds.yaml --enable-story-grouping --dry-run
 
 # Group-only operations (examples)
-python scripts/pipeline_cli.py group-stories --max-stories 50 --dry-run
-python scripts/pipeline_cli.py group-status
+python scripts/news_ingestion/pipeline_cli.py group-stories --max-stories 50 --dry-run
+python scripts/news_ingestion/pipeline_cli.py group-status
 ```
 
 Troubleshooting

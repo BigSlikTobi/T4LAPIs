@@ -25,27 +25,27 @@ def demo_cli_help():
     
     # Mock the command-line arguments to show help
     print("1. Main CLI help:")
-    print("python scripts/pipeline_cli.py --help")
+    print("python scripts/news_ingestion/pipeline_cli.py --help")
     print()
     
     print("2. Run pipeline with story grouping enabled:")
-    print("python scripts/pipeline_cli.py run --enable-story-grouping --dry-run")
+    print("python scripts/news_ingestion/pipeline_cli.py run --enable-story-grouping --dry-run")
     print()
     
     print("3. Manual story grouping:")
-    print("python scripts/pipeline_cli.py group-stories --max-stories 100 --dry-run")
+    print("python scripts/news_ingestion/pipeline_cli.py group-stories --max-stories 100 --dry-run")
     print()
     
     print("4. Check story grouping status:")
-    print("python scripts/pipeline_cli.py group-status")
+    print("python scripts/news_ingestion/pipeline_cli.py group-status")
     print()
     
     print("5. Backfill existing stories:")
-    print("python scripts/pipeline_cli.py group-backfill --batch-size 50 --dry-run")
+    print("python scripts/news_ingestion/pipeline_cli.py group-backfill --batch-size 50 --dry-run")
     print()
     
     print("6. Generate analytics report:")
-    print("python scripts/pipeline_cli.py group-report --format json --days-back 7")
+    print("python scripts/news_ingestion/pipeline_cli.py group-report --format json --days-back 7")
     print()
 
 def demo_configuration():

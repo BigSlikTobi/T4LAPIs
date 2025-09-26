@@ -206,19 +206,41 @@ class URLContextExtractor:
 
             # Try LLM URL context extraction
             summary = await self._try_llm_url_context(news_item)
-            
+            used_fallback = False
+
             # Fallback to metadata-based summary if LLM fails
             if not summary:
                 logger.debug(f"LLM extraction failed, using fallback for: {news_item.url}")
                 summary = self._fallback_to_metadata(news_item)
-            
+                used_fallback = True
+            else:
+                # Preserve explicit fallback signal from downstream helpers or cache
+                used_fallback = bool(summary.fallback_used or summary.llm_model == "metadata_fallback")
+
             # Set news_url_id to URL for now (would be actual ID in real implementation)
             summary.news_url_id = news_item.url
+
+            if used_fallback:
+                summary.fallback_used = True
+                if not summary.llm_model:
+                    summary.llm_model = "metadata_fallback"
             
             # Store in cache if enabled
             if self.enable_caching and self.cache:
                 self.cache.store_summary(summary, metadata_hash)
             
+            summary.fallback_used = bool(
+                summary.fallback_used or used_fallback or summary.llm_model == "metadata_fallback"
+            )
+
+            logger.debug(
+                "Returning summary for %s (fallback=%s, model=%s, used_fallback=%s)",
+                news_item.url,
+                summary.fallback_used,
+                summary.llm_model,
+                used_fallback,
+            )
+
             return summary
             
         except Exception as e:
@@ -298,6 +320,30 @@ class URLContextExtractor:
         is_gpt5 = model_name.lower().startswith("gpt-5")
         token_param = "max_completion_tokens" if is_gpt5 else "max_tokens"
 
+        # Determine temperature handling; GPT-5 models ignore temperature per provider guidance
+        env_temperature_raw = os.getenv("URL_CONTEXT_TEMPERATURE") or os.getenv(
+            "NEWS_PIPELINE_URL_CONTEXT_TEMPERATURE"
+        )
+
+        if is_gpt5:
+            temperature_value: Optional[float] = None
+            if env_temperature_raw:
+                logger.info(
+                    "Ignoring URL_CONTEXT_TEMPERATURE for GPT-5 model '%s'",
+                    model_name,
+                )
+        else:
+            temperature_value = 0.1
+            if env_temperature_raw:
+                try:
+                    temperature_value = float(env_temperature_raw)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Invalid URL_CONTEXT_TEMPERATURE value '%s'; using default %.1f",
+                        env_temperature_raw,
+                        temperature_value,
+                    )
+
         for attempt in range(max_attempts):
             try:
                 params: Dict[str, Any] = {
@@ -314,10 +360,8 @@ class URLContextExtractor:
                     ],
                     "timeout": 30,
                 }
-                if is_gpt5:
-                    params["temperature"] = 1.0
-                else:
-                    params["temperature"] = 0.1
+                if temperature_value is not None:
+                    params["temperature"] = temperature_value
                 params[token_param] = 500
                 response = self.openai_client.chat.completions.create(**params)
             except Exception as e:
@@ -493,6 +537,18 @@ class URLContextExtractor:
         
         return None
     
+    def _build_metadata_summary(
+        self,
+        news_item: ProcessedNewsItem,
+        news_url_id: str,
+    ) -> ContextSummary:
+        """Create a metadata-based summary that mirrors LLM output structure."""
+        summary = self._fallback_to_metadata(news_item)
+        summary.news_url_id = news_url_id
+        summary.llm_model = "metadata_fallback"
+        summary.fallback_used = True
+        return summary
+
     def _create_extraction_prompt(self, news_item: ProcessedNewsItem) -> str:
         """Public-facing helper for building extraction prompts."""
         return self._create_llm_prompt(news_item)

@@ -62,10 +62,13 @@ The pipeline now includes four new CLI commands for story grouping:
 
 ```bash
 # Run the standard pipeline with story grouping enabled
-python scripts/pipeline_cli.py run --enable-story-grouping
+python scripts/news_ingestion/pipeline_cli.py run --enable-story-grouping
 
 # With additional options
-python scripts/pipeline_cli.py run --enable-story-grouping --dry-run --source espn
+python scripts/news_ingestion/pipeline_cli.py run --enable-story-grouping --dry-run --source espn
+
+# Throttle LLM usage by batching sources
+python scripts/news_ingestion/pipeline_cli.py run --enable-story-grouping --batch-size 3 --batch-delay 1.5
 ```
 
 ### 2. Manual Story Grouping
@@ -74,10 +77,10 @@ Process recent stories for grouping without running the full pipeline:
 
 ```bash
 # Basic usage
-python scripts/pipeline_cli.py group-stories
+python scripts/news_ingestion/pipeline_cli.py group-stories
 
 # With options
-python scripts/pipeline_cli.py group-stories \
+python scripts/news_ingestion/pipeline_cli.py group-stories \
   --max-stories 50 \
   --max-parallelism 2 \
   --dry-run \
@@ -95,7 +98,7 @@ python scripts/pipeline_cli.py group-stories \
 Check the current status and statistics of story grouping:
 
 ```bash
-python scripts/pipeline_cli.py group-status
+python scripts/news_ingestion/pipeline_cli.py group-status
 ```
 
 This command shows:
@@ -111,10 +114,10 @@ Process existing stories in batches for story grouping:
 
 ```bash
 # Basic backfill
-python scripts/pipeline_cli.py group-backfill
+python scripts/news_ingestion/pipeline_cli.py group-backfill
 
 # With options
-python scripts/pipeline_cli.py group-backfill \
+python scripts/news_ingestion/pipeline_cli.py group-backfill \
   --batch-size 25 \
   --max-batches 10 \
   --dry-run \
@@ -133,10 +136,10 @@ Generate analytics reports for story grouping performance:
 
 ```bash
 # Text format report
-python scripts/pipeline_cli.py group-report
+python scripts/news_ingestion/pipeline_cli.py group-report
 
 # JSON format report
-python scripts/pipeline_cli.py group-report \
+python scripts/news_ingestion/pipeline_cli.py group-report \
   --format json \
   --days-back 14
 ```
@@ -226,19 +229,19 @@ This implementation satisfies the requirements specified in Task 12:
 
 ```bash
 # 1. Run pipeline with story grouping for new stories
-python scripts/pipeline_cli.py run --enable-story-grouping
+python scripts/news_ingestion/pipeline_cli.py run --enable-story-grouping
 
 # 2. Check status
-python scripts/pipeline_cli.py group-status
+python scripts/news_ingestion/pipeline_cli.py group-status
 
 # 3. Backfill existing stories in small batches
-python scripts/pipeline_cli.py group-backfill --batch-size 25 --max-batches 5
+python scripts/news_ingestion/pipeline_cli.py group-backfill --batch-size 25 --max-batches 5
 
 # 4. Generate weekly analytics report
-python scripts/pipeline_cli.py group-report --days-back 7
+python scripts/news_ingestion/pipeline_cli.py group-report --days-back 7
 
 # 5. Process specific recent stories manually
-python scripts/pipeline_cli.py group-stories --max-stories 20 --reprocess
+python scripts/news_ingestion/pipeline_cli.py group-stories --max-stories 20 --reprocess
 ```
 
 ### Configuration for Production
@@ -285,7 +288,7 @@ Enable debug output to monitor story grouping operations:
 
 ```bash
 export NEWS_PIPELINE_DEBUG=1
-python scripts/pipeline_cli.py run --enable-story-grouping
+python scripts/news_ingestion/pipeline_cli.py run --enable-story-grouping
 ```
 
 This will show detailed information about:
